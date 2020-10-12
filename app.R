@@ -19,11 +19,11 @@ pred_trans <- pred_trans[c("Simple", "Logarithmic", "Polynomial", "Root")]
 
 trans_function <- function(choices) {
   selectizeInput(inputId = "trans", 
-               label = "Transformation:",
-               choices = x,
-               multiple = TRUE,
-               options = list(placeholder = "None",
-                              maxItems = 1))
+                 label = "Transformation:",
+                 choices = x,
+                 multiple = TRUE,
+                 options = list(placeholder = "None",
+                                maxItems = 1))
 }
 
 pred_count <- length(choice_list[["continuous"]]) - 1
@@ -72,16 +72,24 @@ server <- function(input, output, session) {
                    multiple = TRUE,
                    options = list(placeholder = "None"))
   )
-  ## predictors selected
   output$preds_ui <- renderUI({
-    input$cont_preds %>% 
-      map(~selectizeInput(inputId = .x, 
-                         label = paste(.x, "Transformation:"),
-                         choices = pred_trans,
-                         multiple = TRUE,
-                         options = list(placeholder = "None",
-                                        maxItems = 1),
-                         width = "190px"))
+    row_idx <- length(input$cont_preds) %>% seq_len
+    row_idx <- row_idx[row_idx %% 2 == 1]
+    row_idx %>% 
+      map(~fluidRow(column(width = 2, 
+                           selectizeInput(inputId = paste0("cont_pred_trans", .x), 
+                                          label = paste(input$cont_preds[.x], "Transformation:"),
+                                          choices = pred_trans,
+                                          multiple = TRUE,
+                                          options = list(placeholder = "None",
+                                                         maxItems = 1))),
+                    column(width = 2,
+                    selectizeInput(inputId = paste0("cont_pred_trans", .x + 1), 
+                                   label = paste(input$cont_preds[.x + 1], "Transformation:"),
+                                   choices = pred_trans,
+                                   multiple = TRUE,
+                                   options = list(placeholder = "None",
+                                                  maxItems = 1)))))
   })
 }
 
