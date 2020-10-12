@@ -7,46 +7,26 @@ dat <- mtcars %>%
   mutate(qual = sample(c("good", "bad", "horrible"), size = nrow(mtcars), replace = TRUE) %>% as.factor,
          speed = sample(c("fast", "slow", "buzz"), size = nrow(mtcars), replace = TRUE) %>% as.factor)
 choice_list <- list(continuous = dat %>% select_if(is.numeric) %>% colnames %>% sort,
-                    categorical = dat %>% select_if(is.factor) %>% colnames %>% sort,
-                    transformations = c("None", "Logarithmic", "Polynomial", 
-                                        "Reciprocal", "Root", "Square"))
-pred_count <- length(choice_list[["continuous"]]) - 1
+                    categorical = dat %>% select_if(is.factor) %>% colnames %>% sort)
 
-## create conditional UI for transformation parameters
-param_select <- function(object_name) {
-  blank_row <- div(style = "height:76.5px")
-  tabsetPanel(
-    id = object_name,
-    type = "hidden",
-    tabPanel("None",
-             blank_row),
-    tabPanel("Reciprocal",
-             blank_row),
-    tabPanel("Square",
-             blank_row),
-    tabPanel("Logarithmic",
-             selectInput(inputId = "log_param",
-                         label = "Type:",
-                         choices = c("Natural", "Base 2", "Base 10"))),
-    tabPanel("Polynomial", 
-             numericInput(inputId = "poly_param",
-                          label = "Degrees:",
-                          min = 1,
-                          value = 1)),
-    tabPanel("Root", 
-             selectInput(inputId = "root_param",
-                         label = "Type:",
-                         choices = c("Square", "Cubed"))))
+## transformation options
+target_trans <- list("Simple" = c("Reciprocal", "Squared"),
+                     "Logarithmic" = c("Natural", "Base 2", "Base 10"),
+                     "Root" = c("Cubed", "Square"))
+pred_trans <- target_trans
+pred_trans[["Polynomial"]] <-c(paste (seq_len(5), rep("degree", 5)))
+pred_trans <- pred_trans[c("Simple", "Logarithmic", "Polynomial", "Root")]
+
+trans_function <- function(choices) {
+  selectizeInput(inputId = "trans", 
+               label = "Transformation:",
+               choices = x,
+               multiple = TRUE,
+               options = list(placeholder = "None",
+                              maxItems = 1))
 }
 
-## generate individual tabsetPanels for each continuous predictor that can be transformed
-param_names <- c("targetParam", paste0(rep("tranParam", pred_count), seq_len(pred_count)))
-param_selectors <- param_names %>% 
-  map(~param_select(object_name = .x))
-names(param_selectors) <- param_names
-
-## clean work space
-rm(param_list, param_select, param_names)
+pred_count <- length(choice_list[["continuous"]]) - 1
 
 ## create base UI
 ui <- fluidPage(
@@ -58,71 +38,50 @@ ui <- fluidPage(
                        choices = choice_list[["continuous"]])),
     ## input selector for target variable transformation, excluding polynomials
     column(width = 2, 
-           selectInput(inputId = "target_trans", 
-                       label = "Transformation:", 
-                       choices = choice_list[["transformations"]] %>%  .[.!="Polynomial"])),
-    column(width = 5, param_selectors[["targetParam"]])),
+           selectizeInput(inputId = "trans", 
+                          label = "Transformation:",
+                          choices = target_trans,
+                          multiple = TRUE,
+                          options = list(placeholder = "None",
+                                         maxItems = 1)))),
   fluidRow(
-    ## input selector for categorical predictors
-    column(width = 2,
-           selectInput(inputId = "cat_preds",
-                       label = "Select Categorical Predictors:",
-                       choices = choice_list[["categorical"]],
-                       multiple = TRUE,
-                       width = "190px")),
     ## input selector for number of predictors
     column(width = 2,
-           numericInput(inputId = "preds_n", 
-                        label = "Number of Continuous Predictors:", 
-                        value = 1, 
-                        min = 1,
-                        max = pred_count,
-                        width = "190px"))),
-  HTML("<p style=\"font-size:15px\"><b>Select Continuous Predictors: </b></p>"),
+           uiOutput("cont_selector")),
+    ## input selector for categorical predictors
+    column(width = 2,
+           selectizeInput(inputId = "cat_preds",
+                          label = "Select Categorical Predictors:",
+                          choices = choice_list[["categorical"]],
+                          selected = NULL,
+                          multiple = TRUE,
+                          options = list(placeholder = "None")))),
+  HTML("<p style=\"font-size:14.5px\"><b>Continuous Predictor <br> Transformations: </b></p>"),
   ## stored layout for dynamic UI
-  fluidRow(column(width = 2, uiOutput("preds_ui")),
-           column(width = 2, uiOutput("pred_trans_ui")),
-           column(width = 8, uiOutput("pred_param_ui")))
+  uiOutput("preds_ui")
 )
 
 server <- function(input, output, session) {
-  ## generate parameter selections for target variable
-  observeEvent(input$target_trans, {
-    updateTabsetPanel(session = session, inputId = "targetParam", selected = input$target_trans)
-  }) 
   ## filter continuous predictors to omit selected target variable
   continuous_preds <- reactive(choice_list[["continuous"]] %>%  .[.!=input$target])
-  ## create objects to store individual predictors
-  preds <- reactive(paste0("Predictor", seq_len(input$preds_n)))
+  ## generate continuous variables selector
+  output$cont_selector <- renderUI(
+    selectizeInput(inputId = "cont_preds", 
+                   label = "Select Continuous Predictors", 
+                   choices = continuous_preds(),
+                   multiple = TRUE,
+                   options = list(placeholder = "None"))
+  )
+  ## predictors selected
   output$preds_ui <- renderUI({
-    preds() %>% map(~ selectInput(inputId = .x, 
-                                  label = .x, 
-                                  choices = continuous_preds(),
-                                  selected = isolate(input[[.x]])) %||% "")
-  })
-  ## create objects to store individual predictors transformations
-  pred_trans <- reactive(paste0("Transformation", seq_len(input$preds_n)))
-  output$pred_trans_ui <- renderUI({
-    pred_trans() %>% map(~ selectInput(inputId = .x, 
-                                       label = .x, 
-                                       choices = choice_list[["transformations"]],
-                                       selected = isolate(input[[.x]])) %||% "")
-  })
-  ## create objects to store individual predictors transformations parameters
-  pred_params <- reactive(paste0("tranParam", seq_len(input$preds_n)))
-  output$pred_param_ui <- renderUI({
-    req(input$preds_n)
-    pred_params() %>% 
-      map(~fluidRow(column(width = 8, param_selectors[[.x]])))
-  })
-  ## parameter selections for target variable
-  observeEvent(input$preds_n, {
-    seq_len(input$preds_n) %>% 
-      map(~observeEvent(input[[paste0("Transformation", .x)]], {
-        updateTabsetPanel(session = session, 
-                          inputId = paste0("tranParam", .x), 
-                          selected = input[[paste0("Transformation", .x)]])
-      }))
+    input$cont_preds %>% 
+      map(~selectizeInput(inputId = .x, 
+                         label = paste(.x, "Transformation:"),
+                         choices = pred_trans,
+                         multiple = TRUE,
+                         options = list(placeholder = "None",
+                                        maxItems = 1),
+                         width = "190px"))
   })
 }
 
