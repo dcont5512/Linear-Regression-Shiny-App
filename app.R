@@ -73,23 +73,46 @@ server <- function(input, output, session) {
                    options = list(placeholder = "None"))
   )
   output$preds_ui <- renderUI({
+    observeEvent(input$cont_preds, {
+      
+    })
     row_idx <- length(input$cont_preds) %>% seq_len
     row_idx <- row_idx[row_idx %% 2 == 1]
     row_idx %>% 
-      map(~fluidRow(column(width = 2, 
-                           selectizeInput(inputId = paste0("cont_pred_trans", .x), 
-                                          label = paste(input$cont_preds[.x], "Transformation:"),
-                                          choices = pred_trans,
-                                          multiple = TRUE,
-                                          options = list(placeholder = "None",
-                                                         maxItems = 1))),
-                    column(width = 2,
-                    selectizeInput(inputId = paste0("cont_pred_trans", .x + 1), 
-                                   label = paste(input$cont_preds[.x + 1], "Transformation:"),
-                                   choices = pred_trans,
-                                   multiple = TRUE,
-                                   options = list(placeholder = "None",
-                                                  maxItems = 1)))))
+      map(~ if(!is.na(input$cont_preds[.x + 1])) {
+        fluidRow(
+          column(width = 2, 
+                 selectizeInput(
+                   inputId = paste0("cont_pred_trans", .x), 
+                   label = paste(input$cont_preds[.x], "Transformation:"),
+                   choices = pred_trans,
+                   multiple = TRUE,
+                   options = list(placeholder = "None",
+                                  maxItems = 1),
+                   selected = isolate(input$cont_preds[.x]))
+                 ),
+          column(width = 2, 
+                 selectizeInput(
+                   inputId = paste0("cont_pred_trans", .x + 1), 
+                   label = paste(input$cont_preds[.x + 1], "Transformation:"),
+                   choices = pred_trans,
+                   multiple = TRUE,
+                   options = list(placeholder = "None",
+                                  maxItems = 1),
+                   selected = isolate(input$cont_preds[.x + 1]))
+                 ))
+      } else {
+        fluidRow(
+          column(width = 2, 
+                 selectizeInput(inputId = paste0("cont_pred_trans", .x), 
+                                label = paste(input$cont_preds[.x], "Transformation:"),
+                                choices = pred_trans,
+                                multiple = TRUE,
+                                options = list(placeholder = "None",
+                                               maxItems = 1),
+                                selected = isolate(input$cont_preds[.x + 1]))))
+      }
+      %||% "")
   })
 }
 
