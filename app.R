@@ -22,15 +22,6 @@ pred_trans <- target_trans
 pred_trans[["Polynomial"]] <-c(paste (seq_len(5), rep("degree", 5)))
 pred_trans <- pred_trans[c("Simple", "Logarithmic", "Polynomial", "Root")]
 
-trans_function <- function(choices) {
-  selectizeInput(inputId = "trans", 
-                 label = "Transformation:",
-                 choices = x,
-                 multiple = TRUE,
-                 options = list(placeholder = "None",
-                                maxItems = 1))
-}
-
 pred_count <- length(choice_list[["continuous"]]) - 1
 
 ## create base UI
@@ -99,7 +90,9 @@ server <- function(input, output, session) {
                    choices = pred_trans,
                    multiple = TRUE,
                    options = list(placeholder = "None",
-                                  maxItems = 1))),
+                                  maxItems = 1),
+                   selected = isolate(input[[paste0("cont_pred_trans", .x)]]))
+          ),
           column(width = 2, 
                  selectizeInput(
                    inputId = paste0("cont_pred_trans", .x + 1), 
@@ -107,7 +100,8 @@ server <- function(input, output, session) {
                    choices = pred_trans,
                    multiple = TRUE,
                    options = list(placeholder = "None",
-                                  maxItems = 1))
+                                  maxItems = 1),
+                   selected = isolate(input[[paste0("cont_pred_trans", .x + 1)]]))
           ))
       } else {
         fluidRow(
@@ -117,7 +111,10 @@ server <- function(input, output, session) {
                                 choices = pred_trans,
                                 multiple = TRUE,
                                 options = list(placeholder = "None",
-                                               maxItems = 1))))
+                                               maxItems = 1),
+                                selected = isolate(input[[paste0("cont_pred_trans", .x + 1)]]))
+          )
+        )
       }
       )
   })
@@ -130,7 +127,7 @@ server <- function(input, output, session) {
         column(width = 2, 
                selectizeInput(
                  inputId = paste0("term", .x), 
-                 label = paste("Term", .x),
+                 label = paste("Interaction", .x, "Term 1"),
                  choices = intChoices,
                  multiple = TRUE,
                  options = list(placeholder = "None",
@@ -138,7 +135,7 @@ server <- function(input, output, session) {
         column(width = 2, 
                selectizeInput(
                  inputId = paste0("term", .x + 1), 
-                 label = paste("Term", .x + 1),
+                 label = paste("Interaction", .x, "Term 2"),,
                  choices = intChoices,
                  multiple = TRUE,
                  options = list(placeholder = "None",
