@@ -112,15 +112,17 @@ server <- function(input, output, session) {
     ifelse(input$intTermRemove <= 0, 0, input$intTermRemove)
   })
   
+  total <- reactiveVal( 0 )
+  observeEvent( input$intTermAdd, total( total() + 1 ))
+  observeEvent( input$intTermRemove, total( max( 0, total() - 1 )))
+  
   output$intUI <- renderUI({
-    intChoices <- c(input$cont_preds, input$cat_preds)
-    intTermCount <- input$intTermAdd + removes() * - 1
-    intTermCountSeq <- intTermCount %>% seq_len
-    intTermsFun <- function(intTermName, intTermNumber) {
+    intTermCountSeq <- total() %>% seq_len
+    intTermsFun <- function(intTermName, intTermNumber, intTermVar) {
       selectizeInput(
         inputId = intTermName, 
-        label = paste("Interaction", intTermNumber, "Term 1"),
-        choices = intChoices,
+        label = paste("Interaction", intTermNumber, " - Term", intTermVar),
+        choices = c(input$cont_preds, input$cat_preds),
         multiple = TRUE,
         options = list(placeholder = "None",
                        maxItems = 1),
@@ -133,11 +135,13 @@ server <- function(input, output, session) {
         fluidRow(
           column(width = 2, 
                  intTermsFun(intTermName = intTerm1_name,
-                             intTermNumber = .x)
+                             intTermNumber = .x,
+                             intTermVar = 1)
           ),
           column(width = 2, 
                  intTermsFun(intTermName = intTerm2_name,
-                             intTermNumber = .x)))
+                             intTermNumber = .x,
+                             intTermVar = 2)))
       })
   })
 }
