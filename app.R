@@ -23,47 +23,55 @@ pred_trans[["Polynomial"]] <-c(paste (seq_len(5), rep("degree", 5)))
 pred_trans <- pred_trans[c("Simple", "Logarithmic", "Polynomial", "Root")]
 
 ## create base UI
-ui <- fluidPage(
-  fluidRow(
-    column(width = 2, 
-           ## input selector for target variable
-           selectizeInput(inputId = "target", 
-                          label = "Target Variable:", 
-                          choices = choice_list[["continuous"]],
-                          multiple = TRUE,
-                          selected = NULL,
-                          options = list(placeholder = "Click to select",
-                                         maxItems = 1))),
-    column(width = 2, 
-           ## input selector for target variable transformation, excluding polynomials
-           selectizeInput(inputId = "trans", 
-                          label = "Transformation:",
-                          choices = target_trans,
-                          multiple = FALSE,
-                          selected = "None"))),
-  fluidRow(
-    ## input selector for number of predictors
-    column(width = 2,
-           selectizeInput(inputId = "cont_preds", 
-                          label = "Select Continuous Predictors", 
-                          choices = c(""),
-                          multiple = TRUE,
-                          options = list(placeholder = "Select target variable"))),
-    ## input selector for categorical predictors
-    column(width = 2,
-           selectizeInput(inputId = "cat_preds",
-                          label = "Select Categorical Predictors:",
-                          choices = choice_list[["categorical"]],
-                          selected = NULL,
-                          multiple = TRUE,
-                          options = list(placeholder = "None")))),
-  HTML("<p style=\"font-size:14.5px\"><b>Continuous Predictor <br> Transformations: </b></p>"),
-  uiOutput("preds_ui"),
-  fluidRow(column(width = 2, actionButton("intTermAdd", "Add interaction term")),
-           column(width = 2, actionButton("intTermRemove", "Remove interaction term"))),
-  div(style = "height:25.5px"),
-  uiOutput("intUI")
-)
+ui <- 
+  fluidPage(
+    fluidRow(
+      column(width = 2, 
+             ## input selector for target variable
+             selectizeInput(inputId = "target", 
+                            label = "Target Variable:", 
+                            choices = choice_list[["continuous"]],
+                            multiple = TRUE,
+                            selected = NULL,
+                            options = list(placeholder = "Click to select",
+                                           maxItems = 1))),
+      column(width = 2, 
+             ## input selector for target variable transformation, excluding polynomials
+             selectizeInput(inputId = "trans", 
+                            label = "Transformation:",
+                            choices = target_trans,
+                            multiple = FALSE,
+                            selected = "None"))),
+    fluidRow(
+      ## input selector for number of predictors
+      column(width = 2,
+             selectizeInput(inputId = "cont_preds", 
+                            label = "Select Continuous Predictors", 
+                            choices = c(""),
+                            multiple = TRUE,
+                            options = list(placeholder = "Select target variable"))),
+      ## input selector for categorical predictors
+      column(width = 2,
+             selectizeInput(inputId = "cat_preds",
+                            label = "Select Categorical Predictors:",
+                            choices = choice_list[["categorical"]],
+                            selected = NULL,
+                            multiple = TRUE,
+                            options = list(placeholder = "None")))),
+    tabsetPanel(
+      type = "tabs",
+      
+      tabPanel("Variable Transformations", 
+               div(style = "height:25.5px"),
+               uiOutput("preds_ui")),
+      tabPanel("Interaction Terms", 
+               div(style = "height:25.5px"),
+               fluidRow(column(width = 2, actionButton("intTermAdd", "Add interaction term")),
+                        column(width = 2, actionButton("intTermRemove", "Remove interaction term"))),
+               div(style = "height:25.5px"),
+               uiOutput("intUI"))
+    )
+  )
 
 server <- function(input, output, session) {
   ## filter continuous predictors to omit selected target variable
