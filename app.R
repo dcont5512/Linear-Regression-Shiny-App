@@ -1,7 +1,10 @@
 ## libraries
 library(tidyverse)
 library(shiny)
+library(shinydashboard)
+library(shinyWidgets)
 
+## stored data objects, including selector options, and count of predictors
 ## stored data objects, including selector options, and count of predictors
 dat <- mtcars %>% 
   mutate(qual = sample(c("good", "bad", "horrible"), 
@@ -23,63 +26,103 @@ pred_trans[["Polynomial"]] <-c(paste (seq_len(5), rep("degree", 5)))
 pred_trans <- pred_trans[c("Simple", "Logarithmic", "Polynomial", "Root")]
 
 ## create base UI
-ui <- 
-  fluidPage(
-    fluidRow(
-      column(width = 2, 
-             ## input selector for target variable
-             selectizeInput(inputId = "target", 
-                            label = "Target Variable:", 
-                            choices = choice_list[["continuous"]],
-                            multiple = TRUE,
-                            selected = NULL,
-                            options = list(placeholder = "Click to select",
-                                           maxItems = 1))),
-      column(width = 2, 
-             ## input selector for target variable transformation, excluding polynomials
-             selectizeInput(inputId = "trans", 
-                            label = "Transformation:",
-                            choices = target_trans,
-                            multiple = FALSE,
-                            selected = "None"))),
-    fluidRow(
-      ## input selector for number of predictors
-      column(width = 2,
-             selectizeInput(inputId = "cont_preds", 
-                            label = "Select Continuous Predictors", 
-                            choices = c(""),
-                            multiple = TRUE,
-                            options = list(placeholder = "Select target variable"))),
-      ## input selector for categorical predictors
-      column(width = 2,
-             selectizeInput(inputId = "cat_preds",
-                            label = "Select Categorical Predictors:",
-                            choices = choice_list[["categorical"]],
-                            selected = NULL,
-                            multiple = TRUE,
-                            options = list(placeholder = "None")))),
-    tabsetPanel(
-      type = "tabs",
-      
-      tabPanel("Variable Transformations", 
-               div(style = "height:25.5px"),
-               uiOutput("preds_ui")),
-      tabPanel("Interaction Terms", 
-               div(style = "height:25.5px"),
-               fluidRow(column(width = 2, actionButton("intTermAdd", "Add interaction term")),
-                        column(width = 2, actionButton("intTermRemove", "Remove interaction term"))),
-               div(style = "height:25.5px"),
-               uiOutput("intUI"))
+ui <-  dashboardPage(
+  dashboardHeader(title = "Dom's Linear Model Builder", titleWidth = 450),
+  dashboardSidebar(
+    width = 450,
+    sidebarMenu(
+      id = "tabs",
+      fluidRow(
+        column(width = 5, 
+               ## input selector for target variable
+               selectizeInput(inputId = "target", 
+                              label = "Target Variable:", 
+                              choices = choice_list[["continuous"]],
+                              multiple = TRUE,
+                              selected = NULL,
+                              options = list(placeholder = "Click to select",
+                                             maxItems = 1))),
+        column(width = 5, 
+               ## input selector for target variable transformation, excluding polynomials
+               selectizeInput(inputId = "trans", 
+                              label = "Transformation:",
+                              choices = target_trans,
+                              multiple = FALSE,
+                              selected = "None"))),
+      fluidRow(
+        ## input selector for number of predictors
+        column(width = 5,
+               selectizeInput(inputId = "cont_preds", 
+                              label = "Select Continuous Predictors:", 
+                              choices = c(""),
+                              multiple = TRUE,
+                              options = list(placeholder = "None"))),
+        ## input selector for categorical predictors
+        column(width = 5,
+               selectizeInput(inputId = "cat_preds",
+                              label = "Select Categorical Predictors:",
+                              choices = choice_list[["categorical"]],
+                              selected = NULL,
+                              multiple = TRUE,
+                              options = list(placeholder = "None")))),
+      tabsetPanel(
+        type = "tabs",
+        tabPanel("Variable Transformations", 
+                 div(style = "height:25.5px"),
+                 uiOutput("preds_ui")),
+        tabPanel("Interaction Terms", 
+                 div(style = "height:25.5px"),
+                 fluidRow(column(width = 5, actionButton("intTermAdd", "Add interaction term")),
+                          column(width = 5, actionButton("intTermRemove", "Remove interaction term"))),
+                 div(style = "height:25.5px"),
+                 uiOutput("intUI"))
+      )
+    )
+  ),
+  dashboardBody(
+    tabItem("map",
+            tabBox(width = 12, height = 100,
+                   tabPanel("Plots",
+                            selectizeInput("plot_x", "Select X Variable", 
+                                           choices = "", 
+                                           selected = NULL,
+                                           multiple = TRUE,
+                                           options = list(placeholder = "None",
+                                                          maxItems = 1)),
+                            fluidRow(column(width = 6, plotOutput("plot1")),
+                                     column(width = 6, plotOutput("plot2"))))
+            )
     )
   )
+)
 
 server <- function(input, output, session) {
   ## filter continuous predictors to omit selected target variable
   continuous_preds <- reactive(choice_list[["continuous"]] %>%  .[.!=input$target])
   ## generate continuous variables selector
   observeEvent(input$target, {
-    updateSelectizeInput(session, "cont_preds", choices = continuous_preds(),
-                         options = list(placeholder = "None"))
+    updateSelectizeInput(session, "cont_preds", choices = continuous_preds())
+  })
+  ## update plot input
+  observeEvent(input$cont_preds, {
+    updateSelectizeInput(session, "plot_x", choices = input$cont_preds)
+  })
+  ## generate plot outputs
+  output$plot1 <- renderPlot({
+    req(input$target)
+    req(input$plot_x)
+    dat %>% 
+      ggplot(aes_string(x = input$plot_x, y = input$target)) +
+      geom_point()
+  })
+  ## generate plot outputs
+  output$plot2 <- renderPlot({
+    req(input$target)
+    req(input$plot_x)
+    dat %>% 
+      ggplot(aes_string(sample = input$plot_x)) +
+      stat_qq() + 
+      stat_qq_line()
   })
   ## objects to store continuous variable transformations
   output$preds_ui <- renderUI({
@@ -99,16 +142,16 @@ server <- function(input, output, session) {
         var_name_odd <- input$cont_preds[.x]
         var_name_even <- input$cont_preds[.x + 1]
         fluidRow(
-          column(width = 2, 
+          column(width = 5, 
                  trans_selector(var_name_odd)  
           ),
-          column(width = 2, 
+          column(width = 5, 
                  trans_selector(var_name_even)  
           ))
       } else {
         var_name_odd <- input$cont_preds[.x]
         fluidRow(
-          column(width = 2, 
+          column(width = 5, 
                  trans_selector(var_name_odd)
           )
         )
@@ -119,7 +162,6 @@ server <- function(input, output, session) {
   removes <- reactive({
     ifelse(input$intTermRemove <= 0, 0, input$intTermRemove)
   })
-  
   total <- reactiveVal( 0 )
   observeEvent( input$intTermAdd, total( total() + 1 ))
   observeEvent( input$intTermRemove, total( max( 0, total() - 1 )))
@@ -141,12 +183,12 @@ server <- function(input, output, session) {
         intTerm1_name <- paste0("int", .x, "term1")
         intTerm2_name <- paste0("int", .x + 1, "term2")
         fluidRow(
-          column(width = 2, 
+          column(width = 5, 
                  intTermsFun(intTermName = intTerm1_name,
                              intTermNumber = .x,
                              intTermVar = 1)
           ),
-          column(width = 2, 
+          column(width = 5, 
                  intTermsFun(intTermName = intTerm2_name,
                              intTermNumber = .x,
                              intTermVar = 2)))
