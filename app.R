@@ -18,15 +18,15 @@ tran_opts_preds[["Polynomial"]] <-c(paste (seq_len(5), rep("degree", 5)))
 tran_opts_preds <- tran_opts_preds[c("Simple", "Logarithmic", "Polynomial")]
 
 ## create function to implement transformation(s) on target/predictors
-tran_func <- function(x, y) {
-  switch(x,
-         "None" = y,
-         "Reciprocal" = 1/y,
-         "Squared" = y^2,
-         "Square Root" = sqrt(y),
-         "Natural" = log(y),
-         "Base 2" = log2(y),
-         "Base 10" = log10(y)
+tran_func <- function(pred, trans) {
+  switch(trans,
+         "None" = pred,
+         "Reciprocal" = 1/pred,
+         "Squared" = pred^2,
+         "Square Root" = sqrt(pred),
+         "Natural" = log(pred),
+         "Base 2" = log2(pred),
+         "Base 10" = log10(pred)
   )
 }
 
@@ -104,27 +104,6 @@ server <- function(input, output, session) {
     updateSelectizeInput(session, "preds_cont", 
                          choices = var_names[["continuous"]] %>% .[.!=input$target])
   })
-  ## update plot input
-  observeEvent(input$preds_cont, {
-    updateSelectizeInput(session, "plot_x", choices = input$preds_cont)
-  })
-  ## generate plot outputs
-  output$plot1 <- renderPlot({
-    req(input$target)
-    req(input$plot_x)
-    dat %>% 
-      ggplot(aes_string(x = input$plot_x, y = input$target)) +
-      geom_point()
-  })
-  ## generate plot outputs
-  output$plot2 <- renderPlot({
-    req(input$target)
-    req(input$plot_x)
-    dat %>% 
-      ggplot(aes_string(sample = input$plot_x)) +
-      stat_qq() + 
-      stat_qq_line()
-  })
   ## here, we render the UI for the continuous variable transformations
   output$preds_tran_ui <- renderUI({
     ## function to generate transformation selector for each continuous variable
@@ -192,6 +171,32 @@ server <- function(input, output, session) {
                                     intTermNumber = .x,
                                     intTermVar = 2)))
       })
+  })
+  ## update the plot input choices to reflect continuous predictor selections
+  observeEvent(input$preds_cont, {
+    updateSelectizeInput(session, "plot_x", choices = input$preds_cont)
+  })
+  ## generate scatter plot for target variable and selected continuous predictor
+  output$plot1 <- renderPlot({
+    req(input$target)
+    req(input$plot_x)
+    dat %>% 
+      mutate(x_col = tran_func(!!rlang::sym(input$plot_x), 
+                               input[[paste0("trans_", input$plot_x)]])) %>%
+      ggplot(aes(x = x_col,
+                 y = !!rlang::sym(input$target))) +
+      geom_point()
+  })
+  ## generate plot outputs
+  output$plot2 <- renderPlot({
+    req(input$target)
+    req(input$plot_x)
+    dat %>% 
+      mutate(x_col = tran_func(!!rlang::sym(input$plot_x), 
+                               input[[paste0("trans_", input$plot_x)]])) %>%
+      ggplot(aes(sample = x_col)) +
+      stat_qq() + 
+      stat_qq_line()
   })
 }
 
