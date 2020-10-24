@@ -4,26 +4,31 @@ library(shiny)
 library(shinydashboard)
 library(shinyWidgets)
 
-## stored data objects, including selector options, and count of predictors
-## stored data objects, including selector options, and count of predictors
-dat <- mtcars %>% 
-  mutate(qual = sample(c("good", "bad", "horrible"), 
-                       size = nrow(mtcars), 
-                       replace = TRUE) %>% as.factor,
-         speed = sample(c("fast", "slow", "buzz"), 
-                        size = nrow(mtcars), 
-                        replace = TRUE) %>% as.factor)
+## define data frame and variable choice lists
+dat <- diamonds %>% sample_n(10000)
+var_names <- list(continuous = dat %>% select_if(is.numeric) %>% colnames %>% sort,
+                  categorical = dat %>% select_if(is.factor) %>% colnames %>% sort)
 
-choice_list <- list(continuous = dat %>% select_if(is.numeric) %>% colnames %>% sort,
-                    categorical = dat %>% select_if(is.factor) %>% colnames %>% sort)
+## set transformation options for target variable and continuous predictors
+## note that target variable options excludes polynomials
+tran_opts_target <- list("Simple" = c("None", "Reciprocal", "Squared", "Square Root"),
+                         "Logarithmic" = c("Natural", "Base 2", "Base 10"))
+tran_opts_preds <- tran_opts_target
+tran_opts_preds[["Polynomial"]] <-c(paste (seq_len(5), rep("degree", 5)))
+tran_opts_preds <- tran_opts_preds[c("Simple", "Logarithmic", "Polynomial")]
 
-## transformation options
-target_trans <- list("Simple" = c("None", "Reciprocal", "Squared"),
-                     "Logarithmic" = c("Natural", "Base 2", "Base 10"),
-                     "Root" = c("Cubed", "Square"))
-pred_trans <- target_trans
-pred_trans[["Polynomial"]] <-c(paste (seq_len(5), rep("degree", 5)))
-pred_trans <- pred_trans[c("Simple", "Logarithmic", "Polynomial", "Root")]
+## create function to implement transformation(s) on target/predictors
+tran_func <- function(x, y) {
+  switch(x,
+         "None" = y,
+         "Reciprocal" = 1/y,
+         "Squared" = y^2,
+         "Square Root" = sqrt(y),
+         "Natural" = log(y),
+         "Base 2" = log2(y),
+         "Base 10" = log10(y)
+  )
+}
 
 ## create base UI
 ui <-  dashboardPage(
@@ -32,50 +37,47 @@ ui <-  dashboardPage(
     width = 450,
     sidebarMenu(
       id = "tabs",
-      fluidRow(
-        column(width = 5, 
-               ## input selector for target variable
-               selectizeInput(inputId = "target", 
-                              label = "Target Variable:", 
-                              choices = choice_list[["continuous"]],
-                              multiple = TRUE,
-                              selected = NULL,
-                              options = list(placeholder = "Click to select",
-                                             maxItems = 1))),
-        column(width = 5, 
-               ## input selector for target variable transformation, excluding polynomials
-               selectizeInput(inputId = "trans", 
-                              label = "Transformation:",
-                              choices = target_trans,
-                              multiple = FALSE,
-                              selected = "None"))),
-      fluidRow(
-        ## input selector for number of predictors
-        column(width = 5,
-               selectizeInput(inputId = "cont_preds", 
-                              label = "Select Continuous Predictors:", 
-                              choices = c(""),
-                              multiple = TRUE,
-                              options = list(placeholder = "None"))),
-        ## input selector for categorical predictors
-        column(width = 5,
-               selectizeInput(inputId = "cat_preds",
-                              label = "Select Categorical Predictors:",
-                              choices = choice_list[["categorical"]],
-                              selected = NULL,
-                              multiple = TRUE,
-                              options = list(placeholder = "None")))),
+      fluidRow(column(width = 5, 
+                      selectizeInput(inputId = "target", 
+                                     label = "Target Variable:", 
+                                     choices = var_names[["continuous"]],
+                                     multiple = TRUE,
+                                     selected = NULL,
+                                     options = list(placeholder = "Click to select",
+                                                    maxItems = 1))),
+               column(width = 5, 
+                      selectizeInput(inputId = "tran_target", 
+                                     label = "Transformation:",
+                                     choices = tran_opts_target,
+                                     multiple = FALSE,
+                                     selected = "None"))),
+      fluidRow(column(width = 5,
+                      selectizeInput(inputId = "preds_cont", 
+                                     label = "Select Continuous Predictors:", 
+                                     choices = c(""),
+                                     multiple = TRUE,
+                                     options = list(placeholder = "None"))),
+               ## input selector for categorical predictors
+               column(width = 5,
+                      selectizeInput(inputId = "preds_cat",
+                                     label = "Select Categorical Predictors:",
+                                     choices = var_names[["categorical"]],
+                                     selected = NULL,
+                                     multiple = TRUE,
+                                     options = list(placeholder = "None")))),
+      ## create tabs for continuous variable transformations and interaction terms
+      ## and dynamic UIs for each. Note that here we also include buttons to add
+      ## and remove interaction terms
       tabsetPanel(
         type = "tabs",
         tabPanel("Variable Transformations", 
                  div(style = "height:25.5px"),
-                 uiOutput("preds_ui")),
+                 uiOutput("preds_tran_ui")),
         tabPanel("Interaction Terms", 
                  div(style = "height:25.5px"),
                  fluidRow(column(width = 5, actionButton("intTermAdd", "Add interaction term")),
                           column(width = 5, actionButton("intTermRemove", "Remove interaction term"))),
-                 div(style = "height:25.5px"),
-                 uiOutput("intUI"))
+                 uiOutput("preds_int_ui"))
       )
     )
   ),
@@ -97,15 +99,14 @@ ui <-  dashboardPage(
 )
 
 server <- function(input, output, session) {
-  ## filter continuous predictors to omit selected target variable
-  continuous_preds <- reactive(choice_list[["continuous"]] %>%  .[.!=input$target])
-  ## generate continuous variables selector
+  ## update continuous variable options to exclude target variable
   observeEvent(input$target, {
-    updateSelectizeInput(session, "cont_preds", choices = continuous_preds())
+    updateSelectizeInput(session, "preds_cont", 
+                         choices = var_names[["continuous"]] %>% .[.!=input$target])
   })
   ## update plot input
-  observeEvent(input$cont_preds, {
-    updateSelectizeInput(session, "plot_x", choices = input$cont_preds)
+  observeEvent(input$preds_cont, {
+    updateSelectizeInput(session, "plot_x", choices = input$preds_cont)
   })
   ## generate plot outputs
   output$plot1 <- renderPlot({
@@ -124,74 +125,72 @@ server <- function(input, output, session) {
       stat_qq() + 
       stat_qq_line()
   })
-  ## objects to store continuous variable transformations
-  output$preds_ui <- renderUI({
-    row_idx <- length(input$cont_preds) %>% seq_len
-    row_idx <- row_idx[row_idx %% 2 == 1]
-    trans_selector <-  function(var_name) {
-      selectizeInput(inputId = paste0(var_name, "trans"), 
-                     label = paste(var_name, "Transformation:"),
-                     choices = pred_trans,
+  ## here, we render the UI for the continuous variable transformations
+  output$preds_tran_ui <- renderUI({
+    ## function to generate transformation selector for each continuous variable
+    tran_select_preds <-  function(preds_cont_name) {
+      input_name <- paste0("trans_", preds_cont_name)
+      selectizeInput(inputId = input_name, 
+                     label = preds_cont_name,
+                     choices = tran_opts_preds,
                      multiple = TRUE,
                      options = list(placeholder = "None",
                                     maxItems = 1),
-                     selected = isolate(input[[paste0(var_name, "trans")]])) 
+                     selected = isolate(input[[input_name]])) 
     }
-    row_idx %>% 
-      map(~ if(!is.na(input$cont_preds[.x + 1])) {
-        var_name_odd <- input$cont_preds[.x]
-        var_name_even <- input$cont_preds[.x + 1]
-        fluidRow(
-          column(width = 5, 
-                 trans_selector(var_name_odd)  
-          ),
-          column(width = 5, 
-                 trans_selector(var_name_even)  
-          ))
+    ## generate zig-zag UI for the continuous variable transformations; first, 
+    ## we generate a sequence of numbers the length of the number of continuous 
+    ## predictors and keep only the odd numbers - these odd numbers serve as 
+    ## the row index for each transformation line
+    pred_trans_row_idx <- length(input$preds_cont) %>% seq_len
+    pred_trans_row_idx <- pred_trans_row_idx[pred_trans_row_idx %% 2 == 1]
+    ## generate transformation selectors for rows with two options 
+    pred_trans_row_idx %>% 
+      map(~ if(!is.na(input$preds_cont[.x + 1])) {
+        preds_cont_left_name <- input$preds_cont[.x]
+        preds_cont_right_name <- input$preds_cont[.x + 1]
+        fluidRow(column(width = 5, 
+                        tran_select_preds(preds_cont_name = preds_cont_left_name)),
+                 column(width = 5, 
+                        tran_select_preds(preds_cont_name = preds_cont_right_name)))
       } else {
-        var_name_odd <- input$cont_preds[.x]
-        fluidRow(
-          column(width = 5, 
-                 trans_selector(var_name_odd)
-          )
-        )
+        preds_cont_left_name <- input$preds_cont[.x]
+        fluidRow(column(width = 5, 
+                        tran_select_preds(preds_cont_name = preds_cont_left_name)))
       }
       )
   })
-  ## generate UI for interaction terms
-  removes <- reactive({
-    ifelse(input$intTermRemove <= 0, 0, input$intTermRemove)
-  })
-  total <- reactiveVal( 0 )
-  observeEvent( input$intTermAdd, total( total() + 1 ))
-  observeEvent( input$intTermRemove, total( max( 0, total() - 1 )))
-  
-  output$intUI <- renderUI({
-    intTermCountSeq <- total() %>% seq_len
+  ## generate UI for interaction terms; first step is to identify number of
+  ## interaction terms created based on the sum of clicks for add interaction 
+  ## term/remove interaction term buttons
+  click_total <- reactiveVal(0)
+  observeEvent(input$intTermAdd, click_total(click_total() + 1))
+  observeEvent(input$intTermRemove, click_total( max(0, click_total() - 1 )))
+  ## function to generate interaction term selectors
+  output$preds_int_ui <- renderUI({
     intTermsFun <- function(intTermName, intTermNumber, intTermVar) {
-      selectizeInput(
-        inputId = intTermName, 
-        label = paste("Interaction", intTermNumber, " - Term", intTermVar),
-        choices = c(input$cont_preds, input$cat_preds),
-        multiple = TRUE,
-        options = list(placeholder = "None",
-                       maxItems = 1),
-        selected = isolate(input[[intTermName]]))
-    }    
-    intTermCountSeq %>% 
+      selectizeInput(inputId = intTermName, 
+                     label = paste("Interaction", intTermNumber, " - Term", intTermVar),
+                     choices = c(input$preds_cont, input$preds_cat),
+                     multiple = TRUE,
+                     options = list(placeholder = "None",
+                                    maxItems = 1),
+                     selected = isolate(input[[intTermName]]))
+    }
+    ## generate interaction term UI
+    click_total() %>% 
+      seq_len %>% 
       map(~ {
-        intTerm1_name <- paste0("int", .x, "term1")
-        intTerm2_name <- paste0("int", .x + 1, "term2")
-        fluidRow(
-          column(width = 5, 
-                 intTermsFun(intTermName = intTerm1_name,
-                             intTermNumber = .x,
-                             intTermVar = 1)
-          ),
-          column(width = 5, 
-                 intTermsFun(intTermName = intTerm2_name,
-                             intTermNumber = .x,
-                             intTermVar = 2)))
+        int_term_left_name <- paste0("int", .x, "term1")
+        inter_term_right_name <- paste0("int", .x + 1, "term2")
+        fluidRow(column(width = 5, 
+                        intTermsFun(intTermName = int_term_left_name,
+                                    intTermNumber = .x,
+                                    intTermVar = 1)),
+                 column(width = 5, 
+                        intTermsFun(intTermName = inter_term_right_name,
+                                    intTermNumber = .x,
+                                    intTermVar = 2)))
       })
   })
 }
