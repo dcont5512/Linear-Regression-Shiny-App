@@ -112,9 +112,7 @@ server <- function(input, output, session) {
       selectizeInput(inputId = input_name, 
                      label = preds_cont_name,
                      choices = tran_opts_preds,
-                     multiple = TRUE,
-                     options = list(placeholder = "None",
-                                    maxItems = 1),
+                     multiple = FALSE,
                      selected = isolate(input[[input_name]])) 
     }
     ## generate zig-zag UI for the continuous variable transformations; first, 
@@ -172,6 +170,22 @@ server <- function(input, output, session) {
                                     intTermVar = 2)))
       })
   })
+  ## reactive data frame
+  dat_trans <- reactive({
+    tran_preds <- input$preds_cont %>% 
+      map(~input[[paste0("trans_", .x)]]) %>% 
+      unlist
+    tran_list <- data.frame(var_list = c(input$target, input$preds_cont),
+                            tran_list = c(input$tran_target, tran_preds),
+                            stringsAsFactors = F) %>% 
+      mutate(tran_form = paste0("tran_func(pred = ", 
+                                var_list, ", trans = \"", 
+                                tran_list, "\")"))
+    pmap(tran_list, ~ dat %>%
+           transmute(!! str_c(..1, "_tran") :=
+                       eval(rlang::parse_expr(..3)))) %>%
+      bind_cols(dat, .)
+  })
   ## update the plot input choices to reflect continuous predictor selections
   observeEvent(input$preds_cont, {
     updateSelectizeInput(session, "plot_x", choices = input$preds_cont)
@@ -180,21 +194,17 @@ server <- function(input, output, session) {
   output$plot1 <- renderPlot({
     req(input$target)
     req(input$plot_x)
-    dat %>% 
-      mutate(x_col = tran_func(!!rlang::sym(input$plot_x), 
-                               input[[paste0("trans_", input$plot_x)]])) %>%
-      ggplot(aes(x = x_col,
-                 y = !!rlang::sym(input$target))) +
+    dat_trans() %>% 
+      ggplot(aes_string(x = paste0(input$plot_x, "_tran"),
+                        y = paste0(input$target, "_tran"))) +
       geom_point()
   })
   ## generate plot outputs
   output$plot2 <- renderPlot({
     req(input$target)
     req(input$plot_x)
-    dat %>% 
-      mutate(x_col = tran_func(!!rlang::sym(input$plot_x), 
-                               input[[paste0("trans_", input$plot_x)]])) %>%
-      ggplot(aes(sample = x_col)) +
+    dat_trans() %>% 
+      ggplot(aes_string(sample = paste0(input$plot_x, "_tran"))) +
       stat_qq() + 
       stat_qq_line()
   })
