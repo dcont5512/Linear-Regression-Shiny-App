@@ -11,22 +11,24 @@ var_names <- list(continuous = dat %>% select_if(is.numeric) %>% colnames %>% so
 
 ## set transformation options for target variable and continuous predictors
 ## note that target variable options excludes polynomials
-tran_opts_target <- list("Simple" = c("None", "Reciprocal", "Squared", "Square Root"),
+tran_opts_target <- list("Simple" = c("None",  "Reciprocal", "Squared", "Square Root"),
                          "Logarithmic" = c("Natural", "Base 2", "Base 10"))
 tran_opts_preds <- tran_opts_target
 tran_opts_preds[["Polynomial"]] <-c(paste (seq_len(5), rep("degree", 5)))
 tran_opts_preds <- tran_opts_preds[c("Simple", "Logarithmic", "Polynomial")]
 
 ## create function to implement transformation(s) on target/predictors
+recip_func <- function(x) {1/x}
+
 tran_func <- function(pred, trans) {
   switch(trans,
          "None" = pred,
-         "Reciprocal" = 1/pred,
-         "Squared" = pred^2,
-         "Square Root" = sqrt(pred),
-         "Natural" = log(pred),
-         "Base 2" = log2(pred),
-         "Base 10" = log10(pred)
+         "Reciprocal" = paste0("recip_func(", pred, ")"),
+         "Squared" = paste0(pred, "^2"),
+         "Square Root" = paste0("sqrt(", pred, ")"),
+         "Natural" = paste0("log(", pred, ")"),
+         "Base 2" = paste0("log2(", pred, ")"),
+         "Base 10" = paste0("log10(", pred, ")")
   )
 }
 
@@ -92,7 +94,9 @@ ui <-  dashboardPage(
                                            options = list(placeholder = "None",
                                                           maxItems = 1)),
                             fluidRow(column(width = 6, plotOutput("plot1")),
-                                     column(width = 6, plotOutput("plot2"))))
+                                     column(width = 6, plotOutput("plot2")))),
+                   tabPanel("Linear Model",
+                            textOutput("lm_formula"))
             )
     )
   )
@@ -148,10 +152,8 @@ server <- function(input, output, session) {
     intTermsFun <- function(intTermName, intTermNumber, intTermVar) {
       selectizeInput(inputId = intTermName, 
                      label = paste("Interaction", intTermNumber, " - Term", intTermVar),
-                     choices = c(input$preds_cont, input$preds_cat),
-                     multiple = TRUE,
-                     options = list(placeholder = "None",
-                                    maxItems = 1),
+                     choices = c("None", input$preds_cont, input$preds_cat),
+                     multiple = FALSE,
                      selected = isolate(input[[intTermName]]))
     }
     ## generate interaction term UI
@@ -159,7 +161,7 @@ server <- function(input, output, session) {
       seq_len %>% 
       map(~ {
         int_term_left_name <- paste0("int", .x, "term1")
-        inter_term_right_name <- paste0("int", .x + 1, "term2")
+        inter_term_right_name <- paste0("int", .x, "term2")
         fluidRow(column(width = 5, 
                         intTermsFun(intTermName = int_term_left_name,
                                     intTermNumber = .x,
@@ -178,35 +180,64 @@ server <- function(input, output, session) {
     tran_list <- data.frame(var_list = c(input$target, input$preds_cont),
                             tran_list = c(input$tran_target, tran_preds),
                             stringsAsFactors = F) %>% 
-      mutate(tran_form = paste0("tran_func(pred = ", 
-                                var_list, ", trans = \"", 
-                                tran_list, "\")"))
-    pmap(tran_list, ~ dat %>%
-           transmute(!! str_c(..1, "_tran") :=
-                       eval(rlang::parse_expr(..3)))) %>%
-      bind_cols(dat, .)
+      rowwise %>% 
+      mutate(tran_form = tran_func(var_list, tran_list)) %>% 
+      ungroup
   })
   ## update the plot input choices to reflect continuous predictor selections
   observeEvent(input$preds_cont, {
     updateSelectizeInput(session, "plot_x", choices = input$preds_cont)
   })
+  plot_y_name <- reactive({
+    dat_trans() %>% filter(var_list == input$target) %>% .$tran_form
+  })
+  plot_x_name <- reactive({
+    dat_trans() %>% filter(var_list == input$plot_x) %>% .$tran_form
+  })
   ## generate scatter plot for target variable and selected continuous predictor
   output$plot1 <- renderPlot({
     req(input$target)
     req(input$plot_x)
-    dat_trans() %>% 
-      ggplot(aes_string(x = paste0(input$plot_x, "_tran"),
-                        y = paste0(input$target, "_tran"))) +
+    dat %>% 
+      ggplot(aes_string(x = plot_x_name(),
+                        y = plot_y_name())) +
       geom_point()
   })
   ## generate plot outputs
   output$plot2 <- renderPlot({
     req(input$target)
     req(input$plot_x)
-    dat_trans() %>% 
-      ggplot(aes_string(sample = paste0(input$plot_x, "_tran"))) +
-      stat_qq() + 
+    browser()
+    dat %>%
+      ggplot(aes_string(sample = plot_x_name())) +
+      stat_qq() +
       stat_qq_line()
+  })
+  lm_formula_txt <- reactive({
+    req(input$target)
+    target_preds_cont <- dat_trans() %>% .$tran_form
+    preds_cat <- input$preds_cat
+    model_terms <- c(target_preds_cont, preds_cat, intdf())
+    paste0(model_terms[1], " ~ ", 
+           paste0(model_terms[2:length(model_terms)],  
+                  collapse = " + "))
+  })
+  output$lm_formula <- renderText({
+    lm_formula_txt()
+  })
+  intdf <- reactive({
+    if(click_total() > 1) {
+    dummy <- data.frame(x = seq_len(click_total()) %>% 
+                          map(~input[[paste0("int", .x, "term2")]]) %>% unlist,
+                        y = seq_len(click_total()) %>% 
+                          map(~input[[paste0("int", .x, "term1")]]) %>% unlist) %>% 
+      filter(x != "None" & y != "None")
+    dummy  %>% 
+      inner_join(dat_trans(), by = c("x" = "var_list")) %>% 
+      inner_join(dat_trans(), by = c("y" = "var_list")) %>% 
+      mutate(int_form = paste0(tran_form.x, "*", tran_form.y)) %>% 
+      .$int_form
+    }
   })
 }
 
