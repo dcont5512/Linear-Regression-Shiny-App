@@ -226,17 +226,19 @@ server <- function(input, output, session) {
     lm_formula_txt()
   })
   intdf <- reactive({
-    if(click_total() > 1) {
-    dummy <- data.frame(x = seq_len(click_total()) %>% 
-                          map(~input[[paste0("int", .x, "term2")]]) %>% unlist,
-                        y = seq_len(click_total()) %>% 
-                          map(~input[[paste0("int", .x, "term1")]]) %>% unlist) %>% 
-      filter(x != "None" & y != "None")
-    dummy  %>% 
-      inner_join(dat_trans(), by = c("x" = "var_list")) %>% 
-      inner_join(dat_trans(), by = c("y" = "var_list")) %>% 
-      mutate(int_form = paste0(tran_form.x, "*", tran_form.y)) %>% 
-      .$int_form
+    if(click_total() >= 1) {
+      dummy <- data.frame(x = seq_len(click_total()) %>% 
+                            map(~input[[paste0("int", .x, "term2")]]) %>% unlist,
+                          y = seq_len(click_total()) %>% 
+                            map(~input[[paste0("int", .x, "term1")]]) %>% unlist) %>% 
+        filter(x != "None" & y != "None" & as.character(x) != as.character(y))
+      unique(t(apply(dummy, 1, sort))) %>%
+        data.frame %>% 
+        `colnames<-`(c("X123", "X234")) %>% 
+        inner_join(dat_trans(), by = c("X123" = "var_list")) %>% 
+         inner_join(dat_trans(), by = c("X234" = "var_list")) %>% 
+        mutate(int_form = paste0(tran_form.x, "*", tran_form.y)) %>% 
+        .$int_form
     }
   })
 }
