@@ -3,6 +3,7 @@ library(tidyverse)
 library(shiny)
 library(shinydashboard)
 library(shinyWidgets)
+library(ggfortify)
 
 ## table ~ y, carat, x 
 
@@ -24,7 +25,7 @@ tran_func <- function(pred, trans) {
   switch(trans,
          "None" = pred,
          "Reciprocal" = paste0("I(1/", pred, ")"),
-         "Squared" = paste0(pred, "^2"),
+         "Squared" = paste0("I(", pred, "^2)"),
          "Square Root" = paste0("sqrt(", pred, ")"),
          "Natural" = paste0("log(", pred, ")"),
          "Base 2" = paste0("log2(", pred, ")"),
@@ -88,8 +89,7 @@ ui <-  dashboardPage(
     )
   ),
   dashboardBody(
-    tabItem("map",
-            tabBox(width = 12, height = 100,
+            tabBox(width = 12, height = 400,
                    tabPanel("Plots",
                             selectizeInput("plot_x", "Select X Variable", 
                                            choices = "", 
@@ -100,9 +100,12 @@ ui <-  dashboardPage(
                             fluidRow(column(width = 6, plotOutput("plot1")),
                                      column(width = 6, plotOutput("plot2")))),
                    tabPanel("Linear Model",
-                            textOutput("lm_formula"),
-                            verbatimTextOutput("model_results"))
-            )
+                            htmlOutput("lm_formula"),
+                            div(style = "height:12.5px"),
+                            verbatimTextOutput("model_results")),
+                   tabPanel("Diagnostic Plots",
+                            plotOutput(("diagnostics")))
+            
     )
   )
 )
@@ -230,9 +233,9 @@ server <- function(input, output, session) {
            paste0(model_terms[2:length(model_terms)],  
                   collapse = " + "))
   })
-  output$lm_formula <- renderText({
+  output$lm_formula <- renderUI({
     if(max(length(input$preds_cont), length(input$preds_cat)) >= 1) {
-    lm_formula_txt()
+      HTML(paste0("<b> Formula: </b> ", lm_formula_txt()))
     }
   })
   intdf <- reactive({
@@ -243,20 +246,26 @@ server <- function(input, output, session) {
                             map(~input[[paste0("int", .x, "term1")]]) %>% unlist) %>% 
         filter(x != "None" & y != "None" & as.character(x) != as.character(y))
       if(nrow(dummy) != 0) {
-      dummy <- unique(t(apply(dummy, 1, sort))) %>%
-        data.frame %>%
-        `colnames<-`(c("X123", "X234"))
-      dummy %>%
-        inner_join(dat_trans(), by = c("X123" = "var_list")) %>%
-        inner_join(dat_trans(), by = c("X234" = "var_list")) %>%
-        mutate(int_form = paste0(tran_form.x, "*", tran_form.y)) %>%
-        .$int_form
+        dummy <- unique(t(apply(dummy, 1, sort))) %>%
+          data.frame %>%
+          `colnames<-`(c("X123", "X234"))
+        dummy %>%
+          inner_join(dat_trans(), by = c("X123" = "var_list")) %>%
+          inner_join(dat_trans(), by = c("X234" = "var_list")) %>%
+          mutate(int_form = paste0(tran_form.x, "*", tran_form.y)) %>%
+          .$int_form
       }
     }
   })
   output$model_results <- renderPrint({
     if(max(length(input$preds_cont), length(input$preds_cat)) >= 1) {
-    summary(lm(formula = lm_formula_txt(), data = dat))
+      summary(lm(formula = lm_formula_txt(), data = dat))
+    }
+  })
+  output$diagnostics <- renderPlot({
+    if(max(length(input$preds_cont), length(input$preds_cat)) >= 1) {
+      par(mfrow = c(2,2))
+      autoplot(lm(formula = lm_formula_txt(), data = dat), label.size = 3)
     }
   })
 }
