@@ -4,6 +4,8 @@ library(shiny)
 library(shinydashboard)
 library(shinyWidgets)
 
+## table ~ y, carat, x 
+
 ## define data frame and variable choice lists
 dat <- diamonds %>% sample_n(10000)
 var_names <- list(continuous = dat %>% select_if(is.numeric) %>% colnames %>% sort,
@@ -14,21 +16,23 @@ var_names <- list(continuous = dat %>% select_if(is.numeric) %>% colnames %>% so
 tran_opts_target <- list("Simple" = c("None",  "Reciprocal", "Squared", "Square Root"),
                          "Logarithmic" = c("Natural", "Base 2", "Base 10"))
 tran_opts_preds <- tran_opts_target
-tran_opts_preds[["Polynomial"]] <-c(paste (seq_len(5), rep("degree", 5)))
+tran_opts_preds[["Polynomial"]] <-c(paste (seq(from = 2, to = 5), rep("degree", 5)))
 tran_opts_preds <- tran_opts_preds[c("Simple", "Logarithmic", "Polynomial")]
 
 ## create function to implement transformation(s) on target/predictors
-recip_func <- function(x) {1/x}
-
 tran_func <- function(pred, trans) {
   switch(trans,
          "None" = pred,
-         "Reciprocal" = paste0("recip_func(", pred, ")"),
+         "Reciprocal" = paste0("I(1/", pred, ")"),
          "Squared" = paste0(pred, "^2"),
          "Square Root" = paste0("sqrt(", pred, ")"),
          "Natural" = paste0("log(", pred, ")"),
          "Base 2" = paste0("log2(", pred, ")"),
-         "Base 10" = paste0("log10(", pred, ")")
+         "Base 10" = paste0("log10(", pred, ")"),
+         "2 degree" = paste0("poly(", pred, ", 2)"),
+         "3 degree" = paste0("poly(", pred, ", 3)"),
+         "4 degree" = paste0("poly(", pred, ", 4)"),
+         "5 degree" = paste0("poly(", pred, ", 5)"),
   )
 }
 
@@ -96,7 +100,8 @@ ui <-  dashboardPage(
                             fluidRow(column(width = 6, plotOutput("plot1")),
                                      column(width = 6, plotOutput("plot2")))),
                    tabPanel("Linear Model",
-                            textOutput("lm_formula"))
+                            textOutput("lm_formula"),
+                            verbatimTextOutput("model_results"))
             )
     )
   )
@@ -182,7 +187,10 @@ server <- function(input, output, session) {
                             stringsAsFactors = F) %>% 
       rowwise %>% 
       mutate(tran_form = tran_func(var_list, tran_list)) %>% 
-      ungroup
+      ungroup %>% 
+      select(-tran_list) %>% 
+      rbind(data.frame(var_list = input$preds_cat,
+                       tran_form = input$preds_cat))
   })
   ## update the plot input choices to reflect continuous predictor selections
   observeEvent(input$preds_cont, {
@@ -198,6 +206,7 @@ server <- function(input, output, session) {
   output$plot1 <- renderPlot({
     req(input$target)
     req(input$plot_x)
+    browser()
     dat %>% 
       ggplot(aes_string(x = plot_x_name(),
                         y = plot_y_name())) +
@@ -207,7 +216,6 @@ server <- function(input, output, session) {
   output$plot2 <- renderPlot({
     req(input$target)
     req(input$plot_x)
-    browser()
     dat %>%
       ggplot(aes_string(sample = plot_x_name())) +
       stat_qq() +
@@ -217,13 +225,15 @@ server <- function(input, output, session) {
     req(input$target)
     target_preds_cont <- dat_trans() %>% .$tran_form
     preds_cat <- input$preds_cat
-    model_terms <- c(target_preds_cont, preds_cat, intdf())
+    model_terms <- c(target_preds_cont, intdf())
     paste0(model_terms[1], " ~ ", 
            paste0(model_terms[2:length(model_terms)],  
                   collapse = " + "))
   })
   output$lm_formula <- renderText({
+    if(max(length(input$preds_cont), length(input$preds_cat)) >= 1) {
     lm_formula_txt()
+    }
   })
   intdf <- reactive({
     if(click_total() >= 1) {
@@ -232,13 +242,21 @@ server <- function(input, output, session) {
                           y = seq_len(click_total()) %>% 
                             map(~input[[paste0("int", .x, "term1")]]) %>% unlist) %>% 
         filter(x != "None" & y != "None" & as.character(x) != as.character(y))
-      unique(t(apply(dummy, 1, sort))) %>%
-        data.frame %>% 
-        `colnames<-`(c("X123", "X234")) %>% 
-        inner_join(dat_trans(), by = c("X123" = "var_list")) %>% 
-         inner_join(dat_trans(), by = c("X234" = "var_list")) %>% 
-        mutate(int_form = paste0(tran_form.x, "*", tran_form.y)) %>% 
+      if(nrow(dummy) != 0) {
+      dummy <- unique(t(apply(dummy, 1, sort))) %>%
+        data.frame %>%
+        `colnames<-`(c("X123", "X234"))
+      dummy %>%
+        inner_join(dat_trans(), by = c("X123" = "var_list")) %>%
+        inner_join(dat_trans(), by = c("X234" = "var_list")) %>%
+        mutate(int_form = paste0(tran_form.x, "*", tran_form.y)) %>%
         .$int_form
+      }
+    }
+  })
+  output$model_results <- renderPrint({
+    if(max(length(input$preds_cont), length(input$preds_cat)) >= 1) {
+    summary(lm(formula = lm_formula_txt(), data = dat))
     }
   })
 }
