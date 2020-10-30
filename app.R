@@ -7,20 +7,17 @@ library(ggfortify)
 library(car)
 library(GGally)
 
-## table ~ y, carat, x 
-
 ## define data frame and variable choice lists
-dat <- diamonds %>% sample_n(10000)
+dat <- diamonds %>% sample_n(1000)
 var_names <- list(continuous = dat %>% select_if(is.numeric) %>% colnames %>% sort,
                   categorical = dat %>% select_if(is.factor) %>% colnames %>% sort)
 
 ## set transformation options for target variable and continuous predictors
-## note that target variable options excludes polynomials
-tran_opts_target <- list("Simple" = c("None",  "Reciprocal", "Squared", "Square Root"),
-                         "Logarithmic" = c("Natural", "Base 2", "Base 10"))
-tran_opts_preds <- tran_opts_target
-tran_opts_preds[["Polynomial"]] <-c(paste (seq(from = 2, to = 5), rep("degree", 5)))
-tran_opts_preds <- tran_opts_preds[c("Simple", "Logarithmic", "Polynomial")]
+tran_opts <- list(
+  "Simple" = c("None",  "Reciprocal", "Squared", "Square Root"),
+  "Logarithmic" = c("Natural", "Base 2", "Base 10"),
+  "Polynomial" = c(paste (seq(from = 2, to = 5), rep("degree", 5)))
+)
 
 ## create function to implement transformation(s) on target/predictors
 tran_func <- function(pred, trans) {
@@ -39,16 +36,14 @@ tran_func <- function(pred, trans) {
   )
 }
 
+## create function to extract help documentation (include stack)
 extract_help <- function(pkg, fn = NULL, to = c("txt", "html", "latex", "ex"))
 {
   to <- match.arg(to)
   rdbfile <- file.path(find.package(pkg), "help", pkg)
   rdb <- tools:::fetchRdDB(rdbfile, key = fn)
   convertor <- switch(to, 
-                      txt   = tools::Rd2txt, 
                       html  = tools::Rd2HTML, 
-                      latex = tools::Rd2latex, 
-                      ex    = tools::Rd2ex
   )
   f <- function(x) capture.output(convertor(x))
   if(is.null(fn)) lapply(rdb, f) else f(rdb)
@@ -60,76 +55,94 @@ ui <-  dashboardPage(
   dashboardSidebar(
     width = 450,
     sidebarMenu(
-      id = "tabs",
-      fluidRow(column(width = 5, 
-                      selectizeInput(inputId = "target", 
-                                     label = "Target Variable:", 
-                                     choices = var_names[["continuous"]],
-                                     multiple = TRUE,
-                                     selected = NULL,
-                                     options = list(placeholder = "Click to select",
-                                                    maxItems = 1))),
-               column(width = 5, 
-                      selectizeInput(inputId = "tran_target", 
-                                     label = "Transformation:",
-                                     choices = tran_opts_target,
-                                     multiple = FALSE,
-                                     selected = "None"))),
-      fluidRow(column(width = 5,
-                      selectizeInput(inputId = "preds_cont", 
-                                     label = "Select Continuous Predictors:", 
-                                     choices = c(""),
-                                     multiple = TRUE,
-                                     options = list(placeholder = "None"))),
-               ## input selector for categorical predictors
-               column(width = 5,
-                      selectizeInput(inputId = "preds_cat",
-                                     label = "Select Categorical Predictors:",
-                                     choices = var_names[["categorical"]],
-                                     selected = NULL,
-                                     multiple = TRUE,
-                                     options = list(placeholder = "None")))),
-      ## create tabs for continuous variable transformations and interaction terms
-      ## and dynamic UIs for each. Note that here we also include buttons to add
-      ## and remove interaction terms
+      fluidRow(
+        column(width = 5, 
+               ## target variable selector
+               selectizeInput(inputId = "target", 
+                              label = "Target Variable:", 
+                              choices = var_names[["continuous"]],
+                              multiple = TRUE,
+                              selected = NULL,
+                              options = list(placeholder = "Click to select",
+                                             maxItems = 1))),
+        column(width = 5, 
+               ## target variable transformation options (excludes polynomials)
+               selectizeInput(inputId = "tran_target", 
+                              label = "Transformation:",
+                              choices = tran_opts[c("Simple", "Logarithmic")],
+                              multiple = FALSE,
+                              selected = "None"))),
+      fluidRow(
+        column(width = 5,
+               ## continuous predictors selector
+               selectizeInput(inputId = "preds_cont", 
+                              label = "Select Continuous Predictors:", 
+                              choices = c(""),
+                              multiple = TRUE,
+                              options = list(placeholder = "None"))),
+        column(width = 5,
+               ## categorical predictors selector
+               selectizeInput(inputId = "preds_cat",
+                              label = "Select Categorical Predictors:",
+                              choices = var_names[["categorical"]],
+                              selected = NULL,
+                              multiple = TRUE,
+                              options = list(placeholder = "None")))),
+      ## dynamic UIs for continuous variable transformations and interaction terms
       tabsetPanel(
         type = "tabs",
         tabPanel("Transformations", 
                  div(style = "height:25.5px"),
-                 uiOutput("preds_tran_ui")),
+                 uiOutput(outputId = "preds_tran_ui")), 
         tabPanel("Interaction Terms", 
                  div(style = "height:25.5px"),
-                 fluidRow(column(width = 5, actionButton("intTermAdd", "Add interaction term")),
-                          column(width = 5, actionButton("intTermRemove", "Remove interaction term"))),
-                 uiOutput("preds_int_ui"))
+                 ## buttons to add and remove interaction terms
+                 fluidRow(
+                   column(width = 5, 
+                          actionButton(inputId = "intTermAdd", 
+                                       label = "Add interaction term")),
+                   column(width = 5, 
+                          actionButton(inputId = "intTermRemove", 
+                                       label = "Remove interaction term"))),
+                 uiOutput(outputId = "preds_int_ui"))
       )
     )
   ),
   dashboardBody(
     fluidRow(
       tabBox(width = 12, height = NULL,
+             ## Data dictionary tab
              tabPanel("Data Dictionary",
-                      htmlOutput("dictionary")),
+                      htmlOutput(outputId = "data_dictionary")),
+             ## Correlation matrix (can take long time to load)
              tabPanel("Correlation Matrix",
-                      plotOutput("correlations")),
+                      plotOutput(outputId = "cor_matrix", height = 600)),
+             ## Plots for continuous variables transformation analysis
              tabPanel("Plots",
-                      selectizeInput("plot_x", "Select X Variable", 
+                      ## Continuous variable selector
+                      selectizeInput(inputId = "preds_cont_plot", 
+                                     label = "Select Continuous Predictor", 
                                      choices = "", 
                                      selected = NULL,
                                      multiple = TRUE,
                                      options = list(placeholder = "None",
                                                     maxItems = 1)),
-                      fluidRow(column(width = 6, plotOutput("plot1", height = "300px")),
-                               column(width = 6, plotOutput("plot2", height = "300px"))),
-                      plotOutput("plot3", height = "300px")),
+                      ## Histogram, qq plot, and scatter plots for continuous variable selected
+                      fluidRow(column(width = 6, 
+                                      plotOutput(outputId = "plot_hist", height = "300px")),
+                               column(width = 6, 
+                                      plotOutput(outputId = "plot_qq", height = "300px"))),
+                      plotOutput(outputId = "plot_scatter", height = "300px")),
+             ## Linear model output generator, includes formula, summary, and VIF statistics
              tabPanel("Linear Model",
-                      htmlOutput("lm_formula"),
+                      htmlOutput(outputId = "lm_formula"),
                       div(style = "height:12.5px"),
-                      verbatimTextOutput("model_results"),
-                      HTML("<b>VIF Statistics to Diagnose Multicollinearity: </b><br></br>"),
-                      verbatimTextOutput("vif_diagnostics")),
+                      verbatimTextOutput(outputId = "lm_summary"),
+                      htmlOutput(outputId = "lm_vif_header"),
+                      verbatimTextOutput(outputId = "lm_vif_stats")),
+             ## Linear model diagnostic plots
              tabPanel("Diagnostic Plots",
-                      plotOutput("diagnostics", height = "600px"))
+                      plotOutput("lm_diagnostics", height = "600px"))
              
       )
     )
@@ -149,7 +162,7 @@ server <- function(input, output, session) {
       input_name <- paste0("trans_", preds_cont_name)
       selectizeInput(inputId = input_name, 
                      label = preds_cont_name,
-                     choices = tran_opts_preds,
+                     choices = tran_opts,
                      multiple = FALSE,
                      selected = isolate(input[[input_name]])) 
     }
@@ -223,35 +236,35 @@ server <- function(input, output, session) {
   })
   ## update the plot input choices to reflect continuous predictor selections
   observeEvent(input$preds_cont, {
-    updateSelectizeInput(session, "plot_x", choices = input$preds_cont)
+    updateSelectizeInput(session, "preds_cont_plot", choices = input$preds_cont)
   })
   plot_y_name <- reactive({
     dat_trans() %>% filter(var_list == input$target) %>% .$tran_form
   })
   plot_x_name <- reactive({
-    dat_trans() %>% filter(var_list == input$plot_x) %>% .$tran_form
+    dat_trans() %>% filter(var_list == input$preds_cont_plot) %>% .$tran_form
   })
   ## generate scatter plot for target variable and selected continuous predictor
-  output$plot1 <- renderPlot({
+  output$plot_hist <- renderPlot({
     req(input$target)
-    req(input$plot_x)
+    req(input$preds_cont_plot)
     dat %>% 
       ggplot(aes_string(x = plot_x_name())) +
       geom_histogram()
   })
   ## generate plot outputs
-  output$plot2 <- renderPlot({
+  output$plot_qq <- renderPlot({
     req(input$target)
-    req(input$plot_x)
+    req(input$preds_cont_plot)
     dat %>%
       ggplot(aes_string(sample = plot_x_name())) +
       stat_qq() +
       stat_qq_line()
   })
   ## generate scatter plot for target variable and selected continuous predictor
-  output$plot3 <- renderPlot({
+  output$plot_scatter <- renderPlot({
     req(input$target)
-    req(input$plot_x)
+    req(input$preds_cont_plot)
     dat %>% 
       ggplot(aes_string(x = plot_x_name(),
                         y = plot_y_name())) +
@@ -293,27 +306,47 @@ server <- function(input, output, session) {
   })
   regression_model <- reactive(lm(formula = lm_formula_txt(), data = dat))
   output$lm_formula <- renderUI({
-    if(max(length(input$preds_cont), length(input$preds_cat)) >= 1) {
+    if(max(length(input$preds_cont), length(input$preds_cat)) == 0) {
+      HTML(paste0("<b> Select a target variable and at least one continuous or categorical predictor to 
+                  generate a linear model. </b> "))
+    } else {
       HTML(paste0("<b> Formula: </b> ", lm_formula_txt()))
     }
   })
-  output$model_results <- renderPrint({
+  output$lm_summary <- renderPrint({
     if(max(length(input$preds_cont), length(input$preds_cat)) >= 1) {
       summary(regression_model())
     }
   })
-  output$vif_diagnostics <- renderPrint(
+  output$lm_vif_stats <- renderPrint(
     if(length(input$preds_cont) >= 2) {
-    vif(regression_model())
+      vif(regression_model())
     })
-  output$diagnostics <- renderPlot({
+  output$lm_diagnostics <- renderPlot({
     if(max(length(input$preds_cont), length(input$preds_cat)) >= 1) {
       par(mfrow = c(2,2))
       plot(regression_model())
     }
   })
-  output$dictionary <- renderText(extract_help("ggplot2", "diamonds", to="html"))
-  output$correlations <- renderPlot(dat %>% select_if(is.numeric) %>% ggpairs)
+  output$data_dictionary <- renderText(extract_help("ggplot2", "diamonds", to="html"))
+  output$cor_matrix <- renderPlot(dat %>% select_if(is.numeric) %>% ggpairs)
+  output$lm_vif_header <- renderUI({
+    if(max(length(input$preds_cont), length(input$preds_cat)) == 0) {
+      HTML("")
+    }
+    else if(length(input$preds_cont) <= 1) {
+      HTML("<b>Variable Inflation Factor (VIF) to Diagnose Multicollinearity: </b>
+           <br>
+           Select at least two continuous predictors to obtain VIF statistics. Note that it is easiest to 
+           diagnose multicollinearity prior to performing variable transformations and without including
+           categorical predictors.")
+    } else {
+      HTML("<b>VIF Statistics to Diagnose Multicollinearity: </b>
+         <br>
+         Note that it is easiest to diagnose multicollinearity prior to performing variable transformations 
+         and without including categorical predictors.")
+    }
+  })
 }
 
 shinyApp(ui, server)
