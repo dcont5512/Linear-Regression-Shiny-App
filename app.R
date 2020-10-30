@@ -4,6 +4,8 @@ library(shiny)
 library(shinydashboard)
 library(shinyWidgets)
 library(ggfortify)
+library(car)
+library(GGally)
 
 ## table ~ y, carat, x 
 
@@ -35,6 +37,21 @@ tran_func <- function(pred, trans) {
          "4 degree" = paste0("poly(", pred, ", 4)"),
          "5 degree" = paste0("poly(", pred, ", 5)"),
   )
+}
+
+extract_help <- function(pkg, fn = NULL, to = c("txt", "html", "latex", "ex"))
+{
+  to <- match.arg(to)
+  rdbfile <- file.path(find.package(pkg), "help", pkg)
+  rdb <- tools:::fetchRdDB(rdbfile, key = fn)
+  convertor <- switch(to, 
+                      txt   = tools::Rd2txt, 
+                      html  = tools::Rd2HTML, 
+                      latex = tools::Rd2latex, 
+                      ex    = tools::Rd2ex
+  )
+  f <- function(x) capture.output(convertor(x))
+  if(is.null(fn)) lapply(rdb, f) else f(rdb)
 }
 
 ## create base UI
@@ -77,7 +94,7 @@ ui <-  dashboardPage(
       ## and remove interaction terms
       tabsetPanel(
         type = "tabs",
-        tabPanel("Variable Transformations", 
+        tabPanel("Transformations", 
                  div(style = "height:25.5px"),
                  uiOutput("preds_tran_ui")),
         tabPanel("Interaction Terms", 
@@ -89,23 +106,32 @@ ui <-  dashboardPage(
     )
   ),
   dashboardBody(
-            tabBox(width = 12, height = 400,
-                   tabPanel("Plots",
-                            selectizeInput("plot_x", "Select X Variable", 
-                                           choices = "", 
-                                           selected = NULL,
-                                           multiple = TRUE,
-                                           options = list(placeholder = "None",
-                                                          maxItems = 1)),
-                            fluidRow(column(width = 6, plotOutput("plot1")),
-                                     column(width = 6, plotOutput("plot2")))),
-                   tabPanel("Linear Model",
-                            htmlOutput("lm_formula"),
-                            div(style = "height:12.5px"),
-                            verbatimTextOutput("model_results")),
-                   tabPanel("Diagnostic Plots",
-                            plotOutput(("diagnostics")))
-            
+    fluidRow(
+      tabBox(width = 12, height = NULL,
+             tabPanel("Data Dictionary",
+                      htmlOutput("dictionary")),
+             tabPanel("Correlation Matrix",
+                      plotOutput("correlations")),
+             tabPanel("Plots",
+                      selectizeInput("plot_x", "Select X Variable", 
+                                     choices = "", 
+                                     selected = NULL,
+                                     multiple = TRUE,
+                                     options = list(placeholder = "None",
+                                                    maxItems = 1)),
+                      fluidRow(column(width = 6, plotOutput("plot1", height = "300px")),
+                               column(width = 6, plotOutput("plot2", height = "300px"))),
+                      plotOutput("plot3", height = "300px")),
+             tabPanel("Linear Model",
+                      htmlOutput("lm_formula"),
+                      div(style = "height:12.5px"),
+                      verbatimTextOutput("model_results"),
+                      HTML("<b>VIF Statistics to Diagnose Multicollinearity: </b><br></br>"),
+                      verbatimTextOutput("vif_diagnostics")),
+             tabPanel("Diagnostic Plots",
+                      plotOutput("diagnostics", height = "600px"))
+             
+      )
     )
   )
 )
@@ -209,11 +235,9 @@ server <- function(input, output, session) {
   output$plot1 <- renderPlot({
     req(input$target)
     req(input$plot_x)
-    browser()
     dat %>% 
-      ggplot(aes_string(x = plot_x_name(),
-                        y = plot_y_name())) +
-      geom_point()
+      ggplot(aes_string(x = plot_x_name())) +
+      geom_histogram()
   })
   ## generate plot outputs
   output$plot2 <- renderPlot({
@@ -224,6 +248,16 @@ server <- function(input, output, session) {
       stat_qq() +
       stat_qq_line()
   })
+  ## generate scatter plot for target variable and selected continuous predictor
+  output$plot3 <- renderPlot({
+    req(input$target)
+    req(input$plot_x)
+    dat %>% 
+      ggplot(aes_string(x = plot_x_name(),
+                        y = plot_y_name())) +
+      geom_point()
+  })
+  
   lm_formula_txt <- reactive({
     req(input$target)
     target_preds_cont <- dat_trans() %>% .$tran_form
@@ -257,17 +291,29 @@ server <- function(input, output, session) {
       }
     }
   })
-  output$model_results <- renderPrint({
+  regression_model <- reactive(lm(formula = lm_formula_txt(), data = dat))
+  output$lm_formula <- renderUI({
     if(max(length(input$preds_cont), length(input$preds_cat)) >= 1) {
-      summary(lm(formula = lm_formula_txt(), data = dat))
+      HTML(paste0("<b> Formula: </b> ", lm_formula_txt()))
     }
   })
+  output$model_results <- renderPrint({
+    if(max(length(input$preds_cont), length(input$preds_cat)) >= 1) {
+      summary(regression_model())
+    }
+  })
+  output$vif_diagnostics <- renderPrint(
+    if(length(input$preds_cont) >= 2) {
+    vif(regression_model())
+    })
   output$diagnostics <- renderPlot({
     if(max(length(input$preds_cont), length(input$preds_cat)) >= 1) {
       par(mfrow = c(2,2))
-      autoplot(lm(formula = lm_formula_txt(), data = dat), label.size = 3)
+      plot(regression_model())
     }
   })
+  output$dictionary <- renderText(extract_help("ggplot2", "diamonds", to="html"))
+  output$correlations <- renderPlot(dat %>% select_if(is.numeric) %>% ggpairs)
 }
 
 shinyApp(ui, server)
