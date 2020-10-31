@@ -8,7 +8,7 @@ library(car)
 library(GGally)
 
 ## define data frame and variable choice lists
-dat <- diamonds %>% sample_n(1000)
+dat <- diamonds %>% sample_n(400)
 var_names <- list(continuous = dat %>% select_if(is.numeric) %>% colnames %>% sort,
                   categorical = dat %>% select_if(is.factor) %>% colnames %>% sort)
 
@@ -90,7 +90,7 @@ ui <-  dashboardPage(
                               options = list(placeholder = "None")))),
       ## dynamic UIs for continuous variable transformations and interaction terms
       tabsetPanel(
-        type = "tabs",
+        type = "tabs", 
         tabPanel("Transformations", 
                  div(style = "height:25.5px"),
                  uiOutput(outputId = "preds_tran_ui")), 
@@ -120,19 +120,45 @@ ui <-  dashboardPage(
              ## plots for continuous variables transformation analysis
              tabPanel("Plots",
                       ## continuous variable selector
-                      selectizeInput(inputId = "cont_plot", 
-                                     label = "Select Continuous Predictor", 
-                                     choices = "", 
-                                     selected = NULL,
-                                     multiple = TRUE,
-                                     options = list(placeholder = "None",
-                                                    maxItems = 1)),
+                      fluidRow(column(width = 3,
+                                      selectizeInput(inputId = "cont_plot", 
+                                                     label = "Select Variable", 
+                                                     choices = "", 
+                                                     selected = NULL,
+                                                     multiple = TRUE,
+                                                     options = list(placeholder = "None",
+                                                                    maxItems = 1))),
+                               column(width = 3,
+                                      selectizeInput(inputId = "plot_fill", 
+                                                     label = "Select Fill", 
+                                                     choices = "", 
+                                                     selected = NULL,
+                                                     multiple = TRUE,
+                                                     options = list(placeholder = "None",
+                                                                    maxItems = 1))),
+                               column(width = 6,
+                                      plotOutput("legend", height = "75px"))
+                      ),
+                      radioButtons(inputId = "type_plot", 
+                                   label = "Visualize Distribution Using:", 
+                                   choices = c("Histogram", "Density Plot"), 
+                                   selected = "Histogram",
+                                   inline = T),
                       ## histogram, qq plot, and scatter plots for continuous variable selected
                       fluidRow(column(width = 6, 
                                       plotOutput(outputId = "plot_hist", height = "300px")),
                                column(width = 6, 
-                                      plotOutput(outputId = "plot_qq", height = "300px"))),
-                      plotOutput(outputId = "plot_scatter", height = "300px")),
+                                      plotOutput(outputId = "plot_scatter", height = "300px"))),
+                      plotOutput(outputId = "plot_qq", height = "300px")),
+             ## data dictionary tab
+             # tabPanel("Categorical Data",
+             #          selectizeInput(inputId = "cat_plot",
+             #                         label = "Select Variable",
+             #                         choices = "", 
+             #                         selected = NULL,
+             #                         multiple = TRUE,
+             #                         options = list(placeholder = "None",
+             #                                        maxItems = 1))),
              ## linear model output generator, includes formula, summary, and VIF statistics
              tabPanel("Linear Model",
                       htmlOutput(outputId = "lm_formula"),
@@ -142,8 +168,19 @@ ui <-  dashboardPage(
                       verbatimTextOutput(outputId = "lm_vif_stats")),
              ## linear model diagnostic plots
              tabPanel("Diagnostic Plots",
-                      plotOutput("lm_diagnostics", height = "600px"))
-             
+                      plotOutput("lm_diagnostics", height = "600px")),
+             tabPanel("Model Comparisons",
+                      fluidRow(column(width = 4, 
+                                      textInput(inputId = "comp_lm_1", label = "Model 1", 
+                                                value = "", placeholder = "Linear model formula")),
+                               column(width = 4, 
+                                      textInput(inputId = "comp_lm_2", label = "Model 2", 
+                                                value = "", placeholder = "Linear model formula")),
+                               column(width = 3,
+                                      div(style = "height:24px"),
+                                      actionButton(inputId = "lm_comp_run", label = "Compare"))),
+                      verbatimTextOutput("lm_comp_summary")
+             )
       )
     )
   )
@@ -152,7 +189,7 @@ ui <-  dashboardPage(
 server <- function(input, output, session) {
   ## render help file from selected data set (if available)
   output$data_dictionary <- renderText(extract_help("ggplot2", "diamonds", to="html"))
-  ## render correlation matrix for continous variables
+  ## render correlation matrix for continuous variables
   output$cor_matrix <- renderPlot(dat %>% select_if(is.numeric) %>% ggpairs)
   ## update continuous variable selector options to exclude target variable
   observeEvent(input$target, {
@@ -287,8 +324,13 @@ server <- function(input, output, session) {
   })
   ## update the plot input choices to reflect continuous variable selections, including both target
   ## variable and selected continuous predictors
-  observeEvent(input$preds_cont, {
-    updateSelectizeInput(session, "cont_plot", choices = c(input$target, input$preds_cont))
+  vars_cont <- reactive(c(input$target, input$preds_cont))
+  observeEvent(vars_cont(), {
+    updateSelectizeInput(session, "cont_plot", choices = vars_cont())
+  })
+  ## update the plot fill choices to reflect categorical variable selections
+  observeEvent(input$preds_cat, {
+    updateSelectizeInput(session, "plot_fill", choices = input$preds_cat)
   })
   ## obtain transformation statements for target variable and selected continuous variable
   ## from transformation data frame. these will be used in create plot statements
@@ -303,30 +345,65 @@ server <- function(input, output, session) {
     req(input$target)
     req(input$cont_plot)
   }
-  ## generate histogram showing distribution of selected continuous variable
+  ## generate histogram showing distribution of selected continuous variable factoring in
+  ## chart type and fill
   output$plot_hist <- renderPlot({
     plot_reqs()
-    dat %>% 
-      ggplot(aes_string(x = plot_selected())) +
-      geom_histogram()
+    if(input$plot_fill %>% length != 0) {
+      plot <-  dat %>% ggplot(aes_string(x = plot_selected(), fill = input$plot_fill))
+    } else {
+      plot <- dat %>% ggplot(aes_string(x = plot_selected()))
+    }
+    if(input$type_plot == "Histogram") {
+      plot <- plot + geom_histogram()
+    } else {
+      plot <- plot + geom_density(alpha = 0.5)
+    }
+    plot + theme(legend.position = "none")
+  })
+  ## function to generate scatter plot where y-axis is target variable and x-axis is specified
+  ## continuous variable. note that unlike the histogram, we store this as a function, as it 
+  ## will be used in the next step to extract the legend
+  plot_scatter_func <- function(x, fill) {
+    if(fill %>% length != 0) {
+      plot <-  dat %>% ggplot(aes_string(x = x,
+                                         y = plot_target(),
+                                         color = fill))
+    } else {
+      plot <- dat %>% ggplot(aes_string(x = x,
+                                        y = plot_target()))
+    }
+    plot + geom_point()
+  }
+  ## generate scatter plot 
+  output$plot_scatter <- renderPlot({
+    plot_reqs()
+    plot_scatter_func(x = plot_selected(), fill = input$plot_fill) +
+      theme(legend.position = "none")
+  })
+  ## legend render
+  output$legend <- renderPlot({
+    plot_reqs()
+    plot_fill_legend <- plot_scatter_func(x = plot_selected(), fill = input$plot_fill) +
+      theme(legend.position = "bottom", 
+            legend.title=element_text(size = 14,
+                                      family = "Helvetica Neue",
+                                      face = "bold"))
+    get_legend(plot_fill_legend) %>% as_ggplot
   })
   ## generate qq plot of selected continuous variable
   output$plot_qq <- renderPlot({
     plot_reqs()
-    browser()
     dat %>%
       ggplot(aes_string(sample = plot_selected())) +
       stat_qq() +
       stat_qq_line()
   })
-  ## generate plot where y-axis is target variable and x-axis is selected continuous variable
-  output$plot_scatter <- renderPlot({
-    plot_reqs()
-    dat %>% 
-      ggplot(aes_string(x = plot_selected(),
-                        y = plot_target())) +
-      geom_point()
+  ## update categorical variable selector for plots
+  observeEvent(input$preds_cat, {
+    updateSelectizeInput(session, "cat_plot", choices = input$preds_cat)
   })
+  
   ## update header of linear model formula based on whether a target and at least one predictor 
   ## has been selected. if this condition is true, print linear model formula
   output$lm_formula <- renderUI({
@@ -377,6 +454,16 @@ server <- function(input, output, session) {
       par(mfrow = c(2,2))
       plot(regression_model())
     }
+  })
+  ## test model differences using anova
+  observeEvent(input$lm_comp_run, {
+    output$lm_comp_summary <- renderPrint({
+      if(length(input$comp_lm_1) >= 1 & length(input$comp_lm_2) >= 1) {
+        comp_lm_1 <- lm(formula = formula(input$comp_lm_1), data = dat)
+        comp_lm_2 <- lm(formula = formula(input$comp_lm_2), data = dat)
+        anova(comp_lm_1, comp_lm_2)
+      }
+    })
   })
 }
 
