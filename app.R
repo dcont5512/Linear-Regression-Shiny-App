@@ -36,7 +36,7 @@ tran_func <- function(pred, trans) {
   )
 }
 
-## create function to extract help documentation (include stack)
+## create function to extract help documentation (include stack citation)
 extract_help <- function(pkg, fn = NULL, to = c("txt", "html", "latex", "ex"))
 {
   to <- match.arg(to)
@@ -111,36 +111,36 @@ ui <-  dashboardPage(
   dashboardBody(
     fluidRow(
       tabBox(width = 12, height = NULL,
-             ## Data dictionary tab
+             ## data dictionary tab
              tabPanel("Data Dictionary",
                       htmlOutput(outputId = "data_dictionary")),
-             ## Correlation matrix (can take long time to load)
+             ## correlation matrix (can take long time to load)
              tabPanel("Correlation Matrix",
                       plotOutput(outputId = "cor_matrix", height = 600)),
-             ## Plots for continuous variables transformation analysis
+             ## plots for continuous variables transformation analysis
              tabPanel("Plots",
-                      ## Continuous variable selector
-                      selectizeInput(inputId = "preds_cont_plot", 
+                      ## continuous variable selector
+                      selectizeInput(inputId = "cont_plot", 
                                      label = "Select Continuous Predictor", 
                                      choices = "", 
                                      selected = NULL,
                                      multiple = TRUE,
                                      options = list(placeholder = "None",
                                                     maxItems = 1)),
-                      ## Histogram, qq plot, and scatter plots for continuous variable selected
+                      ## histogram, qq plot, and scatter plots for continuous variable selected
                       fluidRow(column(width = 6, 
                                       plotOutput(outputId = "plot_hist", height = "300px")),
                                column(width = 6, 
                                       plotOutput(outputId = "plot_qq", height = "300px"))),
                       plotOutput(outputId = "plot_scatter", height = "300px")),
-             ## Linear model output generator, includes formula, summary, and VIF statistics
+             ## linear model output generator, includes formula, summary, and VIF statistics
              tabPanel("Linear Model",
                       htmlOutput(outputId = "lm_formula"),
                       div(style = "height:12.5px"),
                       verbatimTextOutput(outputId = "lm_summary"),
                       htmlOutput(outputId = "lm_vif_header"),
                       verbatimTextOutput(outputId = "lm_vif_stats")),
-             ## Linear model diagnostic plots
+             ## linear model diagnostic plots
              tabPanel("Diagnostic Plots",
                       plotOutput("lm_diagnostics", height = "600px"))
              
@@ -150,161 +150,185 @@ ui <-  dashboardPage(
 )
 
 server <- function(input, output, session) {
-  ## update continuous variable options to exclude target variable
+  ## render help file from selected data set (if available)
+  output$data_dictionary <- renderText(extract_help("ggplot2", "diamonds", to="html"))
+  ## render correlation matrix for continous variables
+  output$cor_matrix <- renderPlot(dat %>% select_if(is.numeric) %>% ggpairs)
+  ## update continuous variable selector options to exclude target variable
   observeEvent(input$target, {
-    updateSelectizeInput(session, "preds_cont", 
+    updateSelectizeInput(session, inputId = "preds_cont", 
                          choices = var_names[["continuous"]] %>% .[.!=input$target])
   })
-  ## here, we render the UI for the continuous variable transformations
+  ## render UI for continuous variable transformations
   output$preds_tran_ui <- renderUI({
     ## function to generate transformation selector for each continuous variable
-    tran_select_preds <-  function(preds_cont_name) {
-      input_name <- paste0("trans_", preds_cont_name)
+    tran_select_preds <-  function(predsContName) {
+      input_name <- paste0("trans_", predsContName)
       selectizeInput(inputId = input_name, 
-                     label = preds_cont_name,
+                     label = predsContName,
                      choices = tran_opts,
                      multiple = FALSE,
                      selected = isolate(input[[input_name]])) 
     }
-    ## generate zig-zag UI for the continuous variable transformations; first, 
-    ## we generate a sequence of numbers the length of the number of continuous 
-    ## predictors and keep only the odd numbers - these odd numbers serve as 
-    ## the row index for each transformation line
-    pred_trans_row_idx <- length(input$preds_cont) %>% seq_len
-    pred_trans_row_idx <- pred_trans_row_idx[pred_trans_row_idx %% 2 == 1]
-    ## generate transformation selectors for rows with two options 
-    pred_trans_row_idx %>% 
+    ## to generate a zig-zag UI for the continuous variable transformations, 
+    ## we first generate a sequence of numbers the length of the number of 
+    ## continuous variables; we keep only odd numbers from this sequence
+    ## as these serve as row indices for the transformation selectors  
+    tran_row_idx <- length(input$preds_cont) %>% seq_len
+    tran_row_idx <- tran_row_idx[tran_row_idx %% 2 == 1]
+    ## we next generate the UI itself by iterating through the list of odd numbers, 
+    ## at each step using the row index and the row index + 1 to generate the
+    ## actual selector. a conditional if/else format is used to ensure that if the
+    ## number of continuous variables is odd, then the last line will only include
+    ## a single selector
+    tran_row_idx %>% 
       map(~ if(!is.na(input$preds_cont[.x + 1])) {
-        preds_cont_left_name <- input$preds_cont[.x]
-        preds_cont_right_name <- input$preds_cont[.x + 1]
+        tran_left <- input$preds_cont[.x]
+        tran_right <- input$preds_cont[.x + 1]
         fluidRow(column(width = 5, 
-                        tran_select_preds(preds_cont_name = preds_cont_left_name)),
+                        tran_select_preds(predsContName = tran_left)),
                  column(width = 5, 
-                        tran_select_preds(preds_cont_name = preds_cont_right_name)))
+                        tran_select_preds(predsContName = tran_right)))
       } else {
-        preds_cont_left_name <- input$preds_cont[.x]
+        tran_left <- input$preds_cont[.x]
         fluidRow(column(width = 5, 
-                        tran_select_preds(preds_cont_name = preds_cont_left_name)))
+                        tran_select_preds(predsContName = tran_left)))
       }
       )
   })
-  ## generate UI for interaction terms; first step is to identify number of
-  ## interaction terms created based on the sum of clicks for add interaction 
-  ## term/remove interaction term buttons
+  ## to generate the UI for interaction terms, we must first identify the number
+  ## of interaction terms the user would like to create based on the sum of their
+  ## clicks of the add and remove interaction term buttons. the code below ensures
+  ## that the counter stops at zero and does not continue into negative numbers
   click_total <- reactiveVal(0)
   observeEvent(input$intTermAdd, click_total(click_total() + 1))
-  observeEvent(input$intTermRemove, click_total( max(0, click_total() - 1 )))
-  ## function to generate interaction term selectors
+  observeEvent(input$intTermRemove, click_total(max(0, click_total() - 1 )))
+  ## render UI for model interaction terms
   output$preds_int_ui <- renderUI({
-    intTermsFun <- function(intTermName, intTermNumber, intTermVar) {
-      selectizeInput(inputId = intTermName, 
-                     label = paste("Interaction", intTermNumber, " - Term", intTermVar),
+    ## function to generate variable selectors for interaction terms
+    intTermSelector <- function(intTermId, intNumber, intTermPosition) {
+      selectizeInput(inputId = intTermId, 
+                     label = paste("Interaction", intNumber, " - Term", intTermPosition),
                      choices = c("None", input$preds_cont, input$preds_cat),
                      multiple = FALSE,
-                     selected = isolate(input[[intTermName]]))
+                     selected = isolate(input[[intTermId]]))
     }
-    ## generate interaction term UI
+    ## to generate UI for interaction terms, iterate through a sequence of numbers the
+    ## length of the interaction terms, creating two selectors for interaction (i.e. 
+    ## left and right sides of the interaction respectively)
     click_total() %>% 
       seq_len %>% 
       map(~ {
-        int_term_left_name <- paste0("int", .x, "term1")
-        inter_term_right_name <- paste0("int", .x, "term2")
+        int_left <- paste0("int", .x, "term1")
+        int_right <- paste0("int", .x, "term2")
         fluidRow(column(width = 5, 
-                        intTermsFun(intTermName = int_term_left_name,
-                                    intTermNumber = .x,
-                                    intTermVar = 1)),
+                        intTermSelector(intTermId = int_left,
+                                        intNumber = .x,
+                                        intTermPosition = 1)),
                  column(width = 5, 
-                        intTermsFun(intTermName = inter_term_right_name,
-                                    intTermNumber = .x,
-                                    intTermVar = 2)))
+                        intTermSelector(intTermId = int_right,
+                                        intNumber = .x,
+                                        intTermPosition = 2)))
       })
   })
-  ## reactive data frame
-  dat_trans <- reactive({
+  ## here, we create a reactive data frame which stores any transformations associated
+  ## with the target variable and continuous predictors. the first step is to create a 
+  ## vector with list of all continuous variable transformations
+  dat_tran <- reactive({
     tran_preds <- input$preds_cont %>% 
       map(~input[[paste0("trans_", .x)]]) %>% 
       unlist
+    ## create data frame in which first column includes names of target and continuous
+    ## predictors, and second column includes any transformations of these variables.
+    ## next, apply the transformation function using these two columns as inputs. note
+    ## that this process simply creates the transformation statement, rather than 
+    ## transforming the underlying data frame itself
     tran_list <- data.frame(var_list = c(input$target, input$preds_cont),
                             tran_list = c(input$tran_target, tran_preds),
-                            stringsAsFactors = F) %>% 
-      rowwise %>% 
-      mutate(tran_form = tran_func(var_list, tran_list)) %>% 
-      ungroup %>% 
-      select(-tran_list) %>% 
+                            stringsAsFactors = F) %>%
+      rowwise %>%
+      mutate(tran_form = tran_func(var_list, tran_list)) %>%
+      ungroup %>%
+      select(-tran_list) %>%
+      ## finally, append the categorical variable names to this data frame, even though
+      ## they cannot have transformations performed on them
       rbind(data.frame(var_list = input$preds_cat,
                        tran_form = input$preds_cat))
   })
-  ## update the plot input choices to reflect continuous predictor selections
-  observeEvent(input$preds_cont, {
-    updateSelectizeInput(session, "preds_cont_plot", choices = input$preds_cont)
-  })
-  plot_y_name <- reactive({
-    dat_trans() %>% filter(var_list == input$target) %>% .$tran_form
-  })
-  plot_x_name <- reactive({
-    dat_trans() %>% filter(var_list == input$preds_cont_plot) %>% .$tran_form
-  })
-  ## generate scatter plot for target variable and selected continuous predictor
-  output$plot_hist <- renderPlot({
-    req(input$target)
-    req(input$preds_cont_plot)
-    dat %>% 
-      ggplot(aes_string(x = plot_x_name())) +
-      geom_histogram()
-  })
-  ## generate plot outputs
-  output$plot_qq <- renderPlot({
-    req(input$target)
-    req(input$preds_cont_plot)
-    dat %>%
-      ggplot(aes_string(sample = plot_x_name())) +
-      stat_qq() +
-      stat_qq_line()
-  })
-  ## generate scatter plot for target variable and selected continuous predictor
-  output$plot_scatter <- renderPlot({
-    req(input$target)
-    req(input$preds_cont_plot)
-    dat %>% 
-      ggplot(aes_string(x = plot_x_name(),
-                        y = plot_y_name())) +
-      geom_point()
-  })
-  
-  lm_formula_txt <- reactive({
-    req(input$target)
-    target_preds_cont <- dat_trans() %>% .$tran_form
-    preds_cat <- input$preds_cat
-    model_terms <- c(target_preds_cont, intdf())
-    paste0(model_terms[1], " ~ ", 
-           paste0(model_terms[2:length(model_terms)],  
-                  collapse = " + "))
-  })
-  output$lm_formula <- renderUI({
-    if(max(length(input$preds_cont), length(input$preds_cat)) >= 1) {
-      HTML(paste0("<b> Formula: </b> ", lm_formula_txt()))
-    }
-  })
-  intdf <- reactive({
+  ## create an object which stores the text of interaction terms to be included in linear 
+  ## model. the first step in this process is to create a two-column data frame in which
+  ## each row corresponds to one set of interaction terms with the left and right-hand 
+  ## sides of the interaction corresponding to columns 1 and 2 respectively
+  dat_int <- reactive({
     if(click_total() >= 1) {
-      dummy <- data.frame(x = seq_len(click_total()) %>% 
-                            map(~input[[paste0("int", .x, "term2")]]) %>% unlist,
-                          y = seq_len(click_total()) %>% 
-                            map(~input[[paste0("int", .x, "term1")]]) %>% unlist) %>% 
-        filter(x != "None" & y != "None" & as.character(x) != as.character(y))
+      dummy <- data.frame(intTerm1 = seq_len(click_total()) %>% 
+                            map(~input[[paste0("int", .x, "term1")]]) %>% unlist,
+                          intTerm2 = seq_len(click_total()) %>% 
+                            map(~input[[paste0("int", .x, "term2")]]) %>% unlist) %>% 
+        ## filter out any interaction terms in which either selected is set to 'none' or
+        ## in which both selectors are set to the same variable
+        filter((intTerm1 != "None" | intTerm2 != "None") & 
+                 as.character(intTerm1) != as.character(intTerm2))
+      ## filter out duplicate combinations of interaction terms in different order (i.e. c(x, y) == c(y, x))
       if(nrow(dummy) != 0) {
         dummy <- unique(t(apply(dummy, 1, sort))) %>%
           data.frame %>%
-          `colnames<-`(c("X123", "X234"))
+          `colnames<-`(c("intTerm1", "intTerm2"))
+        ## join list of interaction terms to transformation list to obtain correct variable form and 
+        ## then combine both sides of interaction term into a single column and extract that column
         dummy %>%
-          inner_join(dat_trans(), by = c("X123" = "var_list")) %>%
-          inner_join(dat_trans(), by = c("X234" = "var_list")) %>%
-          mutate(int_form = paste0(tran_form.x, "*", tran_form.y)) %>%
+          inner_join(dat_tran(), by = c("intTerm1" = "var_list")) %>%
+          inner_join(dat_tran(), by = c("intTerm2" = "var_list")) %>% 
+          select(intTerm1 = 3, intTerm2 = 4) %>% 
+          mutate(int_form = paste0(intTerm1, "*", intTerm2)) %>%
           .$int_form
       }
     }
   })
-  regression_model <- reactive(lm(formula = lm_formula_txt(), data = dat))
+  ## update the plot input choices to reflect continuous variable selections, including both target
+  ## variable and selected continuous predictors
+  observeEvent(input$preds_cont, {
+    updateSelectizeInput(session, "cont_plot", choices = c(input$target, input$preds_cont))
+  })
+  ## obtain transformation statements for target variable and selected continuous variable
+  ## from transformation data frame. these will be used in create plot statements
+  plot_selected <- reactive({
+    dat_tran() %>% filter(var_list == input$cont_plot) %>% .$tran_form
+  })
+  plot_target <- reactive({
+    dat_tran() %>% filter(var_list == input$target) %>% .$tran_form
+  })
+  ## create function to store input requirements for plots
+  plot_reqs <- function(x) {
+    req(input$target)
+    req(input$cont_plot)
+  }
+  ## generate histogram showing distribution of selected continuous variable
+  output$plot_hist <- renderPlot({
+    plot_reqs()
+    dat %>% 
+      ggplot(aes_string(x = plot_selected())) +
+      geom_histogram()
+  })
+  ## generate qq plot of selected continuous variable
+  output$plot_qq <- renderPlot({
+    plot_reqs()
+    browser()
+    dat %>%
+      ggplot(aes_string(sample = plot_selected())) +
+      stat_qq() +
+      stat_qq_line()
+  })
+  ## generate plot where y-axis is target variable and x-axis is selected continuous variable
+  output$plot_scatter <- renderPlot({
+    plot_reqs()
+    dat %>% 
+      ggplot(aes_string(x = plot_selected(),
+                        y = plot_target())) +
+      geom_point()
+  })
+  ## update header of linear model formula based on whether a target and at least one predictor 
+  ## has been selected. if this condition is true, print linear model formula
   output$lm_formula <- renderUI({
     if(max(length(input$preds_cont), length(input$preds_cat)) == 0) {
       HTML(paste0("<b> Select a target variable and at least one continuous or categorical predictor to 
@@ -313,38 +337,45 @@ server <- function(input, output, session) {
       HTML(paste0("<b> Formula: </b> ", lm_formula_txt()))
     }
   })
-  output$lm_summary <- renderPrint({
-    if(max(length(input$preds_cont), length(input$preds_cat)) >= 1) {
-      summary(regression_model())
-    }
-  })
-  output$lm_vif_stats <- renderPrint(
-    if(length(input$preds_cont) >= 2) {
-      vif(regression_model())
-    })
-  output$lm_diagnostics <- renderPlot({
-    if(max(length(input$preds_cont), length(input$preds_cat)) >= 1) {
-      par(mfrow = c(2,2))
-      plot(regression_model())
-    }
-  })
-  output$data_dictionary <- renderText(extract_help("ggplot2", "diamonds", to="html"))
-  output$cor_matrix <- renderPlot(dat %>% select_if(is.numeric) %>% ggpairs)
+  ## update VIF statistic header text
   output$lm_vif_header <- renderUI({
     if(max(length(input$preds_cont), length(input$preds_cat)) == 0) {
       HTML("")
     }
     else if(length(input$preds_cont) <= 1) {
       HTML("<b>Variable Inflation Factor (VIF) to Diagnose Multicollinearity: </b>
-           <br>
-           Select at least two continuous predictors to obtain VIF statistics. Note that it is easiest to 
-           diagnose multicollinearity prior to performing variable transformations and without including
-           categorical predictors.")
+           <br> Select at least two continuous predictors to obtain VIF statistics.")
     } else {
-      HTML("<b>VIF Statistics to Diagnose Multicollinearity: </b>
-         <br>
-         Note that it is easiest to diagnose multicollinearity prior to performing variable transformations 
-         and without including categorical predictors.")
+      HTML("<b>VIF Statistics to Diagnose Multicollinearity: </b> <br> Note that it is 
+      easiest to diagnose multicollinearity prior to performing variable transformations 
+      and without including categorical predictors.")
+    }
+  })
+  ## generate text of linear model formula. note that the first object in the transformation
+  ## data frame will always be the target variable
+  lm_formula_txt <- reactive({
+    model_terms <- c(dat_tran() %>% .$tran_form, dat_int())
+    paste0(model_terms[1], " ~ ", 
+           paste0(model_terms[2:length(model_terms)],  
+                  collapse = " + "))
+  })
+  ## run regression and output model summary
+  regression_model <- reactive(lm(formula = lm_formula_txt(), data = dat))
+  output$lm_summary <- renderPrint({
+    if(max(length(input$preds_cont), length(input$preds_cat)) >= 1) {
+      summary(regression_model())
+    }
+  })
+  ## output VIF statistics if >= 2 continuous predictors
+  output$lm_vif_stats <- renderPrint(
+    if(length(input$preds_cont) >= 2) {
+      vif(regression_model())
+    })
+  ## output regression diagnostic plots
+  output$lm_diagnostics <- renderPlot({
+    if(max(length(input$preds_cont), length(input$preds_cat)) >= 1) {
+      par(mfrow = c(2,2))
+      plot(regression_model())
     }
   })
 }
