@@ -6,9 +6,10 @@ library(shinyWidgets)
 library(ggfortify)
 library(car)
 library(GGally)
+library(ggpubr)
 
 ## define data frame and variable choice lists
-dat <- diamonds %>% sample_n(400)
+dat <- diamonds %>% sample_n(500)
 var_names <- list(continuous = dat %>% select_if(is.numeric) %>% colnames %>% sort,
                   categorical = dat %>% select_if(is.factor) %>% colnames %>% sort)
 
@@ -47,6 +48,51 @@ extract_help <- function(pkg, fn = NULL, to = c("txt", "html", "latex", "ex"))
   )
   f <- function(x) capture.output(convertor(x))
   if(is.null(fn)) lapply(rdb, f) else f(rdb)
+}
+
+## function to obtain counts of selected categorical variable and fill (if specified)
+plot_cat_dat <- function(pred_cat_selected, pred_cat_fill) {
+  if(pred_cat_fill  %>% length == 0) {
+    df <- dat %>% 
+      count(get(pred_cat_selected), name = "total") %>% 
+      `colnames<-`(c(pred_cat_selected, "total")) 
+  } else {
+    df <- dat %>% 
+      count(get(pred_cat_selected), get(pred_cat_fill), name = "total") %>% 
+      `colnames<-`(c(pred_cat_selected, pred_cat_fill, "total")) %>% 
+      group_by_at(1)
+  }
+  df %>% 
+    mutate(pct_total = (total/sum(total)) * 100)
+}
+## function to render categorical variable bar chart with fill (if specified)
+plot_cat_bar <- function(pred_cat_selected, pred_cat_fill) {
+  df <- plot_cat_dat(pred_cat_selected, pred_cat_fill) 
+  if(pred_cat_fill %>% length == 0) {
+    plot <- df %>% 
+      ggplot(aes_string(x = pred_cat_selected, y = "total", fill = pred_cat_selected)) +
+      geom_bar(stat = "identity")
+  } else {
+    plot <- df %>% 
+      ggplot(aes_string(x = pred_cat_selected, y = "total", fill = pred_cat_fill)) +
+geom_bar(stat = "identity", position = "dodge")
+  }
+  plot + theme(legend.position = "none")
+}
+## function to render stacked categorical bar chart with fill (if specified)
+plot_cat_stack <- function(pred_cat_selected, pred_cat_fill) {
+  df <- plot_cat_dat(pred_cat_selected, pred_cat_fill)
+  if(pred_cat_fill %>% length == 0) {
+    plot <- df %>% 
+      mutate(var_name = pred_cat_selected) %>% 
+      ggplot(aes_string(x = "var_name", y = "pct_total", fill = pred_cat_selected))
+  } else {
+    plot <- df %>% 
+      ggplot(aes_string(x = pred_cat_selected, y = "pct_total", fill = pred_cat_fill))
+  }
+  plot + 
+    geom_bar(stat = "identity", position = "stack") +
+    theme(legend.position = "none")
 }
 
 ## create base UI
@@ -150,15 +196,28 @@ ui <-  dashboardPage(
                                column(width = 6, 
                                       plotOutput(outputId = "plot_scatter", height = "300px"))),
                       plotOutput(outputId = "plot_qq", height = "300px")),
-             ## data dictionary tab
-             # tabPanel("Categorical Data",
-             #          selectizeInput(inputId = "cat_plot",
-             #                         label = "Select Variable",
-             #                         choices = "", 
-             #                         selected = NULL,
-             #                         multiple = TRUE,
-             #                         options = list(placeholder = "None",
-             #                                        maxItems = 1))),
+             ## categorical selector for plot diagnostics
+             tabPanel("Plots2", 
+                      fluidRow(column(width = 3,
+                                      selectizeInput(inputId = "cat_plot",
+                                                     label = "Select Variable",
+                                                     choices = "",
+                                                     selected = NULL,
+                                                     multiple = TRUE,
+                                                     options = list(placeholder = "None",
+                                                                    maxItems = 1))),
+                               column(width = 3, 
+                                      selectizeInput(inputId = "cat_fill", 
+                                                     label = "Select Fill", 
+                                                     choices = "", 
+                                                     selected = NULL,
+                                                     multiple = TRUE,
+                                                     options = list(placeholder = "None",
+                                                                    maxItems = 1))),
+                               column(width = 6,
+                                      plotOutput("plot_cat_legend", height = "75px"))),
+                      fluidRow(column(width = 6, plotOutput("plot_bar")),
+                               column(width = 6, plotOutput("plot_stack")))),
              ## linear model output generator, includes formula, summary, and VIF statistics
              tabPanel("Linear Model",
                       htmlOutput(outputId = "lm_formula"),
@@ -403,7 +462,30 @@ server <- function(input, output, session) {
   observeEvent(input$preds_cat, {
     updateSelectizeInput(session, "cat_plot", choices = input$preds_cat)
   })
-  
+  ## update categorical variable fill selector for plots
+  observeEvent(input$cat_plot, {
+    updateSelectizeInput(session, "cat_fill", choices = input$preds_cat %>% .[.!=input$cat_plot])
+  })
+  ## render categorical variable bar plot
+  output$plot_bar <- renderPlot({
+    req(input$cat_plot)
+    plot_cat_bar(pred_cat_selected = input$cat_plot, pred_cat_fill = input$cat_fill)
+  })
+  ## render categorical variable stacked plot
+  output$plot_stack <- renderPlot({
+    req(input$cat_plot)
+    plot_cat_stack(pred_cat_selected = input$cat_plot, pred_cat_fill = input$cat_fill)
+  })
+  ## render legend for categorical variables
+  output$plot_cat_legend <- renderPlot({
+    req(input$cat_plot)
+    plot_fill_legend <- plot_cat_stack(pred_cat_selected = input$cat_plot, pred_cat_fill = input$cat_fill) +
+      theme(legend.position = "bottom", 
+            legend.title=element_text(size = 14,
+                                      family = "Helvetica Neue",
+                                      face = "bold"))
+    get_legend(plot_fill_legend) %>% as_ggplot
+  })
   ## update header of linear model formula based on whether a target and at least one predictor 
   ## has been selected. if this condition is true, print linear model formula
   output$lm_formula <- renderUI({
