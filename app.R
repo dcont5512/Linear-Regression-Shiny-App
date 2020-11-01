@@ -37,19 +37,6 @@ tran_func <- function(pred, trans) {
   )
 }
 
-## create function to extract help documentation (include stack citation)
-extract_help <- function(pkg, fn = NULL, to = c("txt", "html", "latex", "ex"))
-{
-  to <- match.arg(to)
-  rdbfile <- file.path(find.package(pkg), "help", pkg)
-  rdb <- tools:::fetchRdDB(rdbfile, key = fn)
-  convertor <- switch(to, 
-                      html  = tools::Rd2HTML, 
-  )
-  f <- function(x) capture.output(convertor(x))
-  if(is.null(fn)) lapply(rdb, f) else f(rdb)
-}
-
 ## function to obtain counts of selected categorical variable and fill (if specified)
 plot_cat_dat <- function(pred_cat_selected, pred_cat_fill) {
   if(pred_cat_fill  %>% length == 0) {
@@ -75,7 +62,7 @@ plot_cat_bar <- function(pred_cat_selected, pred_cat_fill) {
   } else {
     plot <- df %>% 
       ggplot(aes_string(x = pred_cat_selected, y = "total", fill = pred_cat_fill)) +
-geom_bar(stat = "identity", position = "dodge")
+      geom_bar(stat = "identity", position = "dodge")
   }
   plot + theme(legend.position = "none")
 }
@@ -95,12 +82,24 @@ plot_cat_stack <- function(pred_cat_selected, pred_cat_fill) {
     theme(legend.position = "none")
 }
 
+## obtain list of loaded data sets
+pkg_names <- setdiff(loadedNamespaces(), 
+                     c("viridisLite", "xtable", "forcats", "shinyWidgets", "lubridate"))
+
+pkg_list <- pkg_names %>% 
+  map(~data(package = .x)$results[, "Item"]) 
+names(pkg_list) <- pkg_names
+pkg_list <- pkg_list[lapply(pkg_list,length)>0]
+
 ## create base UI
 ui <-  dashboardPage(
   dashboardHeader(title = "Dom's Linear Model Builder", titleWidth = 450),
   dashboardSidebar(
     width = 450,
     sidebarMenu(
+      menuItem("Select Dataset", tabName = "dataset",
+                        selectInput("dataset", label = "Dataset", 
+                                    choices = pkg_list)),
       fluidRow(
         column(width = 5, 
                ## target variable selector
@@ -206,14 +205,7 @@ ui <-  dashboardPage(
                                                      multiple = TRUE,
                                                      options = list(placeholder = "None",
                                                                     maxItems = 1))),
-                               column(width = 3, 
-                                      selectizeInput(inputId = "cat_fill", 
-                                                     label = "Select Fill", 
-                                                     choices = "", 
-                                                     selected = NULL,
-                                                     multiple = TRUE,
-                                                     options = list(placeholder = "None",
-                                                                    maxItems = 1))),
+                               column(width = 3, uiOutput("cat_fill_ui")),
                                column(width = 6,
                                       plotOutput("plot_cat_legend", height = "75px"))),
                       fluidRow(column(width = 6, plotOutput("plot_bar")),
@@ -247,13 +239,20 @@ ui <-  dashboardPage(
 
 server <- function(input, output, session) {
   ## render help file from selected data set (if available)
-  output$data_dictionary <- renderText(extract_help("ggplot2", "diamonds", to="html"))
+  output$data_dictionary <- renderUI({
+    Rd <- Rd_fun(help(input$dataset)) 
+    outfile <- tempfile(fileext = ".html")
+    Rd2HTML(Rd, outfile, package = "",
+            stages = c("install", "render"))
+    includeHTML(outfile)
+  })
   ## render correlation matrix for continuous variables
   output$cor_matrix <- renderPlot(dat %>% select_if(is.numeric) %>% ggpairs)
   ## update continuous variable selector options to exclude target variable
   observeEvent(input$target, {
     updateSelectizeInput(session, inputId = "preds_cont", 
-                         choices = var_names[["continuous"]] %>% .[.!=input$target])
+                         choices = var_names[["continuous"]] %>% .[.!=input$target],
+                         selected = isolate(input$preds_cont))
   })
   ## render UI for continuous variable transformations
   output$preds_tran_ui <- renderUI({
@@ -385,11 +384,13 @@ server <- function(input, output, session) {
   ## variable and selected continuous predictors
   vars_cont <- reactive(c(input$target, input$preds_cont))
   observeEvent(vars_cont(), {
-    updateSelectizeInput(session, "cont_plot", choices = vars_cont())
+    updateSelectizeInput(session, "cont_plot", 
+                         choices = vars_cont(), selected = isolate(input$cont_plot))
   })
   ## update the plot fill choices to reflect categorical variable selections
   observeEvent(input$preds_cat, {
-    updateSelectizeInput(session, "plot_fill", choices = input$preds_cat)
+    updateSelectizeInput(session, "plot_fill",
+                         choices = input$preds_cat, selected = isolate(input$plot_fill))
   })
   ## obtain transformation statements for target variable and selected continuous variable
   ## from transformation data frame. these will be used in create plot statements
@@ -460,11 +461,18 @@ server <- function(input, output, session) {
   })
   ## update categorical variable selector for plots
   observeEvent(input$preds_cat, {
-    updateSelectizeInput(session, "cat_plot", choices = input$preds_cat)
+    updateSelectizeInput(session, "cat_plot", 
+                         choices = input$preds_cat, selected = isolate(input$cat_plot))
   })
   ## update categorical variable fill selector for plots
-  observeEvent(input$cat_plot, {
-    updateSelectizeInput(session, "cat_fill", choices = input$preds_cat %>% .[.!=input$cat_plot])
+  output$cat_fill_ui <- renderUI({
+    selectizeInput(inputId = "cat_fill", 
+                   label = "Select Fill", 
+                   choices = input$preds_cat %>% .[.!=input$cat_plot], 
+                   selected = isolate(input$cat_fill),
+                   multiple = TRUE,
+                   options = list(placeholder = "None",
+                                  maxItems = 1))
   })
   ## render categorical variable bar plot
   output$plot_bar <- renderPlot({
