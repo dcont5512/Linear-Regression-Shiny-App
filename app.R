@@ -37,13 +37,13 @@ tran_func <- function(pred, trans) {
 }
 
 ## function to obtain counts of selected categorical variable and fill (if specified)
-plot_cat_dat <- function(pred_cat_selected, pred_cat_fill) {
+plot_cat_dat <- function(data, pred_cat_selected, pred_cat_fill) {
   if(pred_cat_fill  %>% length == 0) {
-    df <- dat() %>% 
+    df <- data %>% 
       count(get(pred_cat_selected), name = "total") %>% 
       `colnames<-`(c(pred_cat_selected, "total")) 
   } else {
-    df <- dat() %>% 
+    df <- data %>% 
       count(get(pred_cat_selected), get(pred_cat_fill), name = "total") %>% 
       `colnames<-`(c(pred_cat_selected, pred_cat_fill, "total")) %>% 
       group_by_at(1)
@@ -52,8 +52,8 @@ plot_cat_dat <- function(pred_cat_selected, pred_cat_fill) {
     mutate(pct_total = (total/sum(total)) * 100)
 }
 ## function to render categorical variable bar chart with fill (if specified)
-plot_cat_bar <- function(pred_cat_selected, pred_cat_fill) {
-  df <- plot_cat_dat(pred_cat_selected, pred_cat_fill) 
+plot_cat_bar <- function(data, pred_cat_selected, pred_cat_fill) {
+  df <- plot_cat_dat(data, pred_cat_selected, pred_cat_fill) 
   if(pred_cat_fill %>% length == 0) {
     plot <- df %>% 
       ggplot(aes_string(x = pred_cat_selected, y = "total", fill = pred_cat_selected)) +
@@ -66,8 +66,8 @@ plot_cat_bar <- function(pred_cat_selected, pred_cat_fill) {
   plot + theme(legend.position = "none")
 }
 ## function to render stacked categorical bar chart with fill (if specified)
-plot_cat_stack <- function(pred_cat_selected, pred_cat_fill) {
-  df <- plot_cat_dat(pred_cat_selected, pred_cat_fill)
+plot_cat_stack <- function(data, pred_cat_selected, pred_cat_fill) {
+  df <- plot_cat_dat(data, pred_cat_selected, pred_cat_fill)
   if(pred_cat_fill %>% length == 0) {
     plot <- df %>% 
       mutate(var_name = pred_cat_selected) %>% 
@@ -91,18 +91,20 @@ plot_cat_stack <- function(pred_cat_selected, pred_cat_fill) {
 
 ## create base UI
 ui <-  dashboardPage(
-  dashboardHeader(title = "Dom's Linear Model Builder", titleWidth = 450),
+  dashboardHeader(title = "Dom's Linear Model Builder", titleWidth = 375),
   dashboardSidebar(
-    width = 450,
+    width = 375,
     sidebarMenu(
+      menuItem("Instructions", tabName = "dataset"),
       menuItem("Select Dataset", tabName = "dataset",
                selectInput("dataset", label = "Dataset", 
                            selected = "mtcars",
-                           choices = c("mtcars", "diamonds")
-                            # ls("package:datasets")
-                           )),
+                           choices = c("mtcars", "diamonds"),
+                            width = "100%"),
+               div(style = "height:5px")),
+      # ls("package:datasets")
       fluidRow(
-        column(width = 5, 
+        column(width = 6,
                ## target variable selector
                selectizeInput(inputId = "target", 
                               label = "Target Variable:", 
@@ -111,7 +113,7 @@ ui <-  dashboardPage(
                               selected = NULL,
                               options = list(placeholder = "Click to select",
                                              maxItems = 1))),
-        column(width = 5, 
+        column(width = 6, 
                ## target variable transformation options (excludes polynomials)
                selectizeInput(inputId = "tran_target", 
                               label = "Transformation:",
@@ -119,56 +121,54 @@ ui <-  dashboardPage(
                               multiple = FALSE,
                               selected = "None"))),
       fluidRow(
-        column(width = 5,
+        column(width = 6,
                ## continuous predictors selector
                selectizeInput(inputId = "preds_cont", 
-                              label = "Select Continuous Predictors:", 
+                              label = "Continuous Variables:", 
                               choices = "",
                               multiple = TRUE,
                               options = list(placeholder = "None"))),
-        column(width = 5,
+        column(width = 6,
                ## categorical predictors selector
                selectizeInput(inputId = "preds_cat",
-                              label = "Select Categorical Predictors:",
+                              label = "Categorical Variables:",
                               choices = "",
                               selected = NULL,
                               multiple = TRUE,
                               options = list(placeholder = "None")))),
       ## dynamic UIs for continuous variable transformations and interaction terms
-      menuItem("Select Transformations", tabName = "test",
-      tabsetPanel(
-        type = "tabs", 
-        tabPanel("Transformations", 
-                 div(style = "height:25.5px"),
-                 uiOutput(outputId = "preds_tran_ui")), 
-        tabPanel("Interaction Terms", 
-                 div(style = "height:25.5px"),
-                 ## buttons to add and remove interaction terms
-                 fluidRow(
-                   column(width = 5, 
-                          actionButton(inputId = "intTermAdd", 
-                                       label = "Add interaction term")),
-                   column(width = 5, 
-                          actionButton(inputId = "intTermRemove", 
-                                       label = "Remove interaction term"))),
-                 uiOutput(outputId = "preds_int_ui"))
-      )
-    )
+      menuItem("Variable Transformations", tabName = "test",
+               uiOutput(outputId = "preds_tran_ui")),
+      menuItem("Interaction Terms", tabname = "test2",
+               div(style = "height:5px"),
+               ## buttons to add and remove interaction terms
+               fluidRow(
+                 column(width = 6, 
+                        actionButton(inputId = "intTermAdd", 
+                                     label = "Add Interaction",
+                                     width = "140px")),
+                 column(width = 6, 
+                        actionButton(inputId = "intTermRemove", 
+                                     label = "Remove Interaction",
+                                     width = "140px"))),
+               div(style = "height:5px"),
+               uiOutput(outputId = "preds_int_ui"))
+      ##,actionButton("blah", label = "Apply Changes", width = "100%")
     )
   ),
   dashboardBody(
     fluidRow(
       tabBox(width = 12, height = NULL,
              ## data dictionary tab
-             tabPanel("Data Dictionary",
+             tabPanel("Data Overview",
                       dataTableOutput("dataframe"), 
                       htmlOutput(outputId = "data_dictionary")),
              ## correlation matrix (can take long time to load)
-             tabPanel("Correlation Matrix",
+             tabPanel("Summary Plots",
                       plotOutput(outputId = "cor_matrix", height = 600),
                       plotOutput(outputId = "bar_lots", height = 300)),
              ## plots for continuous variables transformation analysis
-             tabPanel("Plots",
+             tabPanel("Cont. Variables",
                       ## continuous variable selector
                       fluidRow(column(width = 3,
                                       selectizeInput(inputId = "cont_plot", 
@@ -201,7 +201,7 @@ ui <-  dashboardPage(
                                       plotOutput(outputId = "plot_scatter", height = "300px"))),
                       plotOutput(outputId = "plot_qq", height = "300px")),
              ## categorical selector for plot diagnostics
-             tabPanel("Plots2", 
+             tabPanel("Cat. Variables", 
                       fluidRow(column(width = 3,
                                       selectizeInput(inputId = "cat_plot",
                                                      label = "Select Variable",
@@ -304,13 +304,13 @@ server <- function(input, output, session) {
       map(~ if(!is.na(input$preds_cont[.x + 1])) {
         tran_left <- input$preds_cont[.x]
         tran_right <- input$preds_cont[.x + 1]
-        fluidRow(column(width = 5, 
+        fluidRow(column(width = 6, 
                         tran_select_preds(predsContName = tran_left)),
-                 column(width = 5, 
+                 column(width = 6, 
                         tran_select_preds(predsContName = tran_right)))
       } else {
         tran_left <- input$preds_cont[.x]
-        fluidRow(column(width = 5, 
+        fluidRow(column(width = 6, 
                         tran_select_preds(predsContName = tran_left)))
       }
       )
@@ -340,11 +340,11 @@ server <- function(input, output, session) {
       map(~ {
         int_left <- paste0("int", .x, "term1")
         int_right <- paste0("int", .x, "term2")
-        fluidRow(column(width = 5, 
+        fluidRow(column(width = 6, 
                         intTermSelector(intTermId = int_left,
                                         intNumber = .x,
                                         intTermPosition = 1)),
-                 column(width = 5, 
+                 column(width = 6, 
                         intTermSelector(intTermId = int_right,
                                         intNumber = .x,
                                         intTermPosition = 2)))
@@ -451,11 +451,11 @@ server <- function(input, output, session) {
   plot_scatter_func <- function(x, fill) {
     if(fill %>% length != 0) {
       plot <-  dat() %>% ggplot(aes_string(x = x,
-                                         y = plot_target(),
-                                         color = fill))
+                                           y = plot_target(),
+                                           color = fill))
     } else {
       plot <- dat() %>% ggplot(aes_string(x = x,
-                                        y = plot_target()))
+                                          y = plot_target()))
     }
     plot + geom_point()
   }
@@ -501,17 +501,17 @@ server <- function(input, output, session) {
   ## render categorical variable bar plot
   output$plot_bar <- renderPlot({
     req(input$cat_plot)
-    plot_cat_bar(pred_cat_selected = input$cat_plot, pred_cat_fill = input$cat_fill)
+    plot_cat_bar(data = dat(), pred_cat_selected = input$cat_plot, pred_cat_fill = input$cat_fill)
   })
   ## render categorical variable stacked plot
   output$plot_stack <- renderPlot({
     req(input$cat_plot)
-    plot_cat_stack(pred_cat_selected = input$cat_plot, pred_cat_fill = input$cat_fill)
+    plot_cat_stack(data = dat(), pred_cat_selected = input$cat_plot, pred_cat_fill = input$cat_fill)
   })
   ## render legend for categorical variables
   output$plot_cat_legend <- renderPlot({
     req(input$cat_plot)
-    plot_fill_legend <- plot_cat_stack(pred_cat_selected = input$cat_plot, pred_cat_fill = input$cat_fill) +
+    plot_fill_legend <- plot_cat_stack(data = dat(), pred_cat_selected = input$cat_plot, pred_cat_fill = input$cat_fill) +
       theme(legend.position = "bottom", 
             legend.title=element_text(size = 14,
                                       family = "Helvetica Neue",
