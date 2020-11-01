@@ -7,11 +7,10 @@ library(ggfortify)
 library(car)
 library(GGally)
 library(ggpubr)
-
-## define data frame and variable choice lists
-dat <- diamonds %>% sample_n(500)
-var_names <- list(continuous = dat %>% select_if(is.numeric) %>% colnames %>% sort,
-                  categorical = dat %>% select_if(is.factor) %>% colnames %>% sort)
+library(kableExtra)
+library(gbRd)
+library(data.table)
+library(DataExplorer)
 
 ## set transformation options for target variable and continuous predictors
 tran_opts <- list(
@@ -37,27 +36,14 @@ tran_func <- function(pred, trans) {
   )
 }
 
-## create function to extract help documentation (include stack citation)
-extract_help <- function(pkg, fn = NULL, to = c("txt", "html", "latex", "ex"))
-{
-  to <- match.arg(to)
-  rdbfile <- file.path(find.package(pkg), "help", pkg)
-  rdb <- tools:::fetchRdDB(rdbfile, key = fn)
-  convertor <- switch(to, 
-                      html  = tools::Rd2HTML, 
-  )
-  f <- function(x) capture.output(convertor(x))
-  if(is.null(fn)) lapply(rdb, f) else f(rdb)
-}
-
 ## function to obtain counts of selected categorical variable and fill (if specified)
 plot_cat_dat <- function(pred_cat_selected, pred_cat_fill) {
   if(pred_cat_fill  %>% length == 0) {
-    df <- dat %>% 
+    df <- dat() %>% 
       count(get(pred_cat_selected), name = "total") %>% 
       `colnames<-`(c(pred_cat_selected, "total")) 
   } else {
-    df <- dat %>% 
+    df <- dat() %>% 
       count(get(pred_cat_selected), get(pred_cat_fill), name = "total") %>% 
       `colnames<-`(c(pred_cat_selected, pred_cat_fill, "total")) %>% 
       group_by_at(1)
@@ -75,7 +61,7 @@ plot_cat_bar <- function(pred_cat_selected, pred_cat_fill) {
   } else {
     plot <- df %>% 
       ggplot(aes_string(x = pred_cat_selected, y = "total", fill = pred_cat_fill)) +
-geom_bar(stat = "identity", position = "dodge")
+      geom_bar(stat = "identity", position = "dodge")
   }
   plot + theme(legend.position = "none")
 }
@@ -95,18 +81,32 @@ plot_cat_stack <- function(pred_cat_selected, pred_cat_fill) {
     theme(legend.position = "none")
 }
 
+## obtain list of loaded data sets
+# pkg_names <- setdiff(loadedNamespaces(), 
+#                      c("viridisLite", "xtable", "forcats", "shinyWidgets", "lubridate"))
+# pkg_list <- pkg_names %>% 
+#   map(~data(package = .x)$results[, "Item"]) 
+# names(pkg_list) <- pkg_names
+# pkg_list <- pkg_list[lapply(pkg_list,length)>0]
+
 ## create base UI
 ui <-  dashboardPage(
   dashboardHeader(title = "Dom's Linear Model Builder", titleWidth = 450),
   dashboardSidebar(
     width = 450,
     sidebarMenu(
+      menuItem("Select Dataset", tabName = "dataset",
+               selectInput("dataset", label = "Dataset", 
+                           selected = "mtcars",
+                           choices = c("mtcars", "diamonds")
+                            # ls("package:datasets")
+                           )),
       fluidRow(
         column(width = 5, 
                ## target variable selector
                selectizeInput(inputId = "target", 
                               label = "Target Variable:", 
-                              choices = var_names[["continuous"]],
+                              choices = "",
                               multiple = TRUE,
                               selected = NULL,
                               options = list(placeholder = "Click to select",
@@ -123,18 +123,19 @@ ui <-  dashboardPage(
                ## continuous predictors selector
                selectizeInput(inputId = "preds_cont", 
                               label = "Select Continuous Predictors:", 
-                              choices = c(""),
+                              choices = "",
                               multiple = TRUE,
                               options = list(placeholder = "None"))),
         column(width = 5,
                ## categorical predictors selector
                selectizeInput(inputId = "preds_cat",
                               label = "Select Categorical Predictors:",
-                              choices = var_names[["categorical"]],
+                              choices = "",
                               selected = NULL,
                               multiple = TRUE,
                               options = list(placeholder = "None")))),
       ## dynamic UIs for continuous variable transformations and interaction terms
+      menuItem("Select Transformations", tabName = "test",
       tabsetPanel(
         type = "tabs", 
         tabPanel("Transformations", 
@@ -153,16 +154,19 @@ ui <-  dashboardPage(
                  uiOutput(outputId = "preds_int_ui"))
       )
     )
+    )
   ),
   dashboardBody(
     fluidRow(
       tabBox(width = 12, height = NULL,
              ## data dictionary tab
              tabPanel("Data Dictionary",
+                      dataTableOutput("dataframe"), 
                       htmlOutput(outputId = "data_dictionary")),
              ## correlation matrix (can take long time to load)
              tabPanel("Correlation Matrix",
-                      plotOutput(outputId = "cor_matrix", height = 600)),
+                      plotOutput(outputId = "cor_matrix", height = 600),
+                      plotOutput(outputId = "bar_lots", height = 300)),
              ## plots for continuous variables transformation analysis
              tabPanel("Plots",
                       ## continuous variable selector
@@ -206,14 +210,7 @@ ui <-  dashboardPage(
                                                      multiple = TRUE,
                                                      options = list(placeholder = "None",
                                                                     maxItems = 1))),
-                               column(width = 3, 
-                                      selectizeInput(inputId = "cat_fill", 
-                                                     label = "Select Fill", 
-                                                     choices = "", 
-                                                     selected = NULL,
-                                                     multiple = TRUE,
-                                                     options = list(placeholder = "None",
-                                                                    maxItems = 1))),
+                               column(width = 3, uiOutput("cat_fill_ui")),
                                column(width = 6,
                                       plotOutput("plot_cat_legend", height = "75px"))),
                       fluidRow(column(width = 6, plotOutput("plot_bar")),
@@ -246,14 +243,40 @@ ui <-  dashboardPage(
 )
 
 server <- function(input, output, session) {
+  ## define data frame and variable choice lists
+  dat <- reactive(get(input$dataset))
+  var_names <- reactive(list(continuous = dat() %>% select_if(is.numeric) %>% colnames %>% sort,
+                             categorical = dat() %>% select_if(is.factor) %>% colnames %>% sort))
+  ## update target selector based on data frame
+  observeEvent(input$dataset, {
+    updateSelectizeInput(session, "target", choices = var_names()[["continuous"]])
+  })
+  ## update categorical variable selector based on data frame
+  observeEvent(input$dataset, {
+    updateSelectizeInput(session, "preds_cat", choices = var_names()[["categorical"]])
+  })
+  ## render data table
+  output$dataframe <- renderDataTable(dat(), 
+                                      options = list(pageLength = 5,
+                                                     lengthMenu = list(c(5, 10, 25, 50), 
+                                                                       c("5", "10", "25", "50"))))
   ## render help file from selected data set (if available)
-  output$data_dictionary <- renderText(extract_help("ggplot2", "diamonds", to="html"))
+  output$data_dictionary <- renderUI({
+    Rd <- Rd_fun(help(input$dataset)) 
+    outfile <- tempfile(fileext = ".html")
+    Rd2HTML(Rd, outfile, package = "",
+            stages = c("install", "render"))
+    includeHTML(outfile)
+  })
   ## render correlation matrix for continuous variables
-  output$cor_matrix <- renderPlot(dat %>% select_if(is.numeric) %>% ggpairs)
+  output$cor_matrix <- renderPlot(dat() %>% select_if(is.numeric) %>% ggpairs)
+  ## render bar plots matrix for categorical variables
+  output$bar_lots <- renderPlot(dat() %>% plot_bar())
   ## update continuous variable selector options to exclude target variable
   observeEvent(input$target, {
     updateSelectizeInput(session, inputId = "preds_cont", 
-                         choices = var_names[["continuous"]] %>% .[.!=input$target])
+                         choices = var_names()[["continuous"]] %>% .[.!=input$target],
+                         selected = isolate(input$preds_cont))
   })
   ## render UI for continuous variable transformations
   output$preds_tran_ui <- renderUI({
@@ -385,11 +408,13 @@ server <- function(input, output, session) {
   ## variable and selected continuous predictors
   vars_cont <- reactive(c(input$target, input$preds_cont))
   observeEvent(vars_cont(), {
-    updateSelectizeInput(session, "cont_plot", choices = vars_cont())
+    updateSelectizeInput(session, "cont_plot", 
+                         choices = vars_cont(), selected = isolate(input$cont_plot))
   })
   ## update the plot fill choices to reflect categorical variable selections
   observeEvent(input$preds_cat, {
-    updateSelectizeInput(session, "plot_fill", choices = input$preds_cat)
+    updateSelectizeInput(session, "plot_fill",
+                         choices = input$preds_cat, selected = isolate(input$plot_fill))
   })
   ## obtain transformation statements for target variable and selected continuous variable
   ## from transformation data frame. these will be used in create plot statements
@@ -409,9 +434,9 @@ server <- function(input, output, session) {
   output$plot_hist <- renderPlot({
     plot_reqs()
     if(input$plot_fill %>% length != 0) {
-      plot <-  dat %>% ggplot(aes_string(x = plot_selected(), fill = input$plot_fill))
+      plot <-  dat() %>% ggplot(aes_string(x = plot_selected(), fill = input$plot_fill))
     } else {
-      plot <- dat %>% ggplot(aes_string(x = plot_selected()))
+      plot <- dat() %>% ggplot(aes_string(x = plot_selected()))
     }
     if(input$type_plot == "Histogram") {
       plot <- plot + geom_histogram()
@@ -425,11 +450,11 @@ server <- function(input, output, session) {
   ## will be used in the next step to extract the legend
   plot_scatter_func <- function(x, fill) {
     if(fill %>% length != 0) {
-      plot <-  dat %>% ggplot(aes_string(x = x,
+      plot <-  dat() %>% ggplot(aes_string(x = x,
                                          y = plot_target(),
                                          color = fill))
     } else {
-      plot <- dat %>% ggplot(aes_string(x = x,
+      plot <- dat() %>% ggplot(aes_string(x = x,
                                         y = plot_target()))
     }
     plot + geom_point()
@@ -453,18 +478,25 @@ server <- function(input, output, session) {
   ## generate qq plot of selected continuous variable
   output$plot_qq <- renderPlot({
     plot_reqs()
-    dat %>%
+    dat() %>%
       ggplot(aes_string(sample = plot_selected())) +
       stat_qq() +
       stat_qq_line()
   })
   ## update categorical variable selector for plots
   observeEvent(input$preds_cat, {
-    updateSelectizeInput(session, "cat_plot", choices = input$preds_cat)
+    updateSelectizeInput(session, "cat_plot", 
+                         choices = input$preds_cat, selected = isolate(input$cat_plot))
   })
   ## update categorical variable fill selector for plots
-  observeEvent(input$cat_plot, {
-    updateSelectizeInput(session, "cat_fill", choices = input$preds_cat %>% .[.!=input$cat_plot])
+  output$cat_fill_ui <- renderUI({
+    selectizeInput(inputId = "cat_fill", 
+                   label = "Select Fill", 
+                   choices = input$preds_cat %>% .[.!=input$cat_plot], 
+                   selected = isolate(input$cat_fill),
+                   multiple = TRUE,
+                   options = list(placeholder = "None",
+                                  maxItems = 1))
   })
   ## render categorical variable bar plot
   output$plot_bar <- renderPlot({
@@ -519,7 +551,7 @@ server <- function(input, output, session) {
                   collapse = " + "))
   })
   ## run regression and output model summary
-  regression_model <- reactive(lm(formula = lm_formula_txt(), data = dat))
+  regression_model <- reactive(lm(formula = lm_formula_txt(), data = dat()))
   output$lm_summary <- renderPrint({
     if(max(length(input$preds_cont), length(input$preds_cat)) >= 1) {
       summary(regression_model())
@@ -541,8 +573,8 @@ server <- function(input, output, session) {
   observeEvent(input$lm_comp_run, {
     output$lm_comp_summary <- renderPrint({
       if(length(input$comp_lm_1) >= 1 & length(input$comp_lm_2) >= 1) {
-        comp_lm_1 <- lm(formula = formula(input$comp_lm_1), data = dat)
-        comp_lm_2 <- lm(formula = formula(input$comp_lm_2), data = dat)
+        comp_lm_1 <- lm(formula = formula(input$comp_lm_1), data = dat())
+        comp_lm_2 <- lm(formula = formula(input$comp_lm_2), data = dat())
         anova(comp_lm_1, comp_lm_2)
       }
     })
