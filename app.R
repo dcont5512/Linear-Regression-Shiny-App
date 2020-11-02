@@ -8,6 +8,7 @@ library(car)
 library(GGally)
 library(ggpubr)
 library(kableExtra)
+library(magrittr)
 library(gbRd)
 library(data.table)
 library(DT)
@@ -68,7 +69,7 @@ plot_cat_bar <- function(data, pred_cat_selected, pred_cat_fill) {
 }
 ## function to render stacked categorical bar chart with fill (if specified)
 plot_cat_stack <- function(data, pred_cat_selected, pred_cat_fill) {
-  df <- plot_cat_dat(dat(), pred_cat_selected, pred_cat_fill)
+  df <- plot_cat_dat(data, pred_cat_selected, pred_cat_fill)
   if(pred_cat_fill %>% length == 0) {
     plot <- df %>% 
       mutate(var_name = pred_cat_selected) %>% 
@@ -101,7 +102,7 @@ ui <-  dashboardPage(
                selectInput("dataset", label = "Dataset", 
                            selected = "mtcars",
                            choices = c("mtcars", "diamonds"),
-                            width = "100%"),
+                           width = "100%"),
                div(style = "height:5px")),
       # ls("package:datasets")
       fluidRow(
@@ -160,6 +161,8 @@ ui <-  dashboardPage(
   dashboardBody(
     fluidRow(
       tabBox(width = 12, height = NULL,
+             ## instructions
+             tabPanel("Instructions"),
              ## data dictionary tab
              tabPanel("Data Overview",
                       dataTableOutput("dataframe"), 
@@ -224,11 +227,7 @@ ui <-  dashboardPage(
                                       verbatimTextOutput(outputId = "lm_summary")),
                                column(width = 4, 
                                       htmlOutput(outputId = "lm_vif_header"),
-                                      dataTableOutput(outputId = "lm_vif_stats")))),
-             ## linear model diagnostic plots
-             tabPanel("Diagnostic Plots",
-                      plotOutput("lm_diagnostics", height = "600px")),
-             tabPanel("Model Comparisons",
+                                      dataTableOutput(outputId = "lm_vif_stats"))),
                       fluidRow(column(width = 4, 
                                       textInput(inputId = "comp_lm_1", label = "Model 1", 
                                                 value = "", placeholder = "Linear model formula")),
@@ -238,8 +237,10 @@ ui <-  dashboardPage(
                                column(width = 3,
                                       div(style = "height:24px"),
                                       actionButton(inputId = "lm_comp_run", label = "Compare"))),
-                      verbatimTextOutput("lm_comp_summary")
-             )
+                      verbatimTextOutput("lm_comp_summary")),
+             ## linear model diagnostic plots
+             tabPanel("Diagnostic Plots",
+                      plotOutput("lm_diagnostics", height = "600px"))
       )
     )
   )
@@ -254,33 +255,38 @@ server <- function(input, output, session) {
   observeEvent(input$dataset, {
     updateSelectizeInput(session, "target", choices = var_names()[["continuous"]])
   })
-  ## update categorical variable selector based on data frame
-  observeEvent(input$dataset, {
-    updateSelectizeInput(session, "preds_cat", choices = var_names()[["categorical"]])
-  })
-  ## render data table
-  output$dataframe <- renderDataTable(dat(), 
-                                      options = list(pageLength = 5,
-                                                     lengthMenu = list(c(5, 10, 25, 50), 
-                                                                       c("5", "10", "25", "50"))))
-  ## render help file from selected data set (if available)
-  output$data_dictionary <- renderUI({
-    Rd <- Rd_fun(help(input$dataset)) 
-    outfile <- tempfile(fileext = ".html")
-    Rd2HTML(Rd, outfile, package = "",
-            stages = c("install", "render"))
-    includeHTML(outfile)
-  })
-  ## render correlation matrix for continuous variables
-  output$cor_matrix <- renderPlot(dat() %>% select_if(is.numeric) %>% ggpairs)
-  ## render bar plots matrix for categorical variables
-  output$bar_lots <- renderPlot(dat() %>% plot_bar())
   ## update continuous variable selector options to exclude target variable
   observeEvent(input$target, {
     updateSelectizeInput(session, inputId = "preds_cont", 
                          choices = var_names()[["continuous"]] %>% .[.!=input$target],
                          selected = isolate(input$preds_cont))
   })
+  ## update continuous variable selector when data frame changes
+  observeEvent(input$dataset, {
+    updateSelectizeInput(session, inputId = "preds_cont",
+                         selected = "")
+    })
+    ## update categorical variable selector based on data frame
+    observeEvent(input$dataset, {
+      updateSelectizeInput(session, "preds_cat", choices = var_names()[["categorical"]])
+    })
+    ## render data table
+    output$dataframe <- renderDataTable(dat(), 
+                                        options = list(pageLength = 5,
+                                                       lengthMenu = list(c(5, 10, 25, 50), 
+                                                                         c("5", "10", "25", "50"))))
+    ## render help file from selected data set (if available)
+    output$data_dictionary <- renderUI({
+      Rd <- Rd_fun(help(input$dataset)) 
+      outfile <- tempfile(fileext = ".html")
+      Rd2HTML(Rd, outfile, package = "",
+              stages = c("install", "render"))
+      includeHTML(outfile)
+    })
+    ## render correlation matrix for continuous variables
+    output$cor_matrix <- renderPlot(dat() %>% select_if(is.numeric) %>% ggpairs)
+    ## render bar plots matrix for categorical variables
+    output$bar_lots <- renderPlot(dat() %>% plot_bar())
   ## render UI for continuous variable transformations
   output$preds_tran_ui <- renderUI({
     ## function to generate transformation selector for each continuous variable
@@ -534,24 +540,32 @@ server <- function(input, output, session) {
   ## update VIF statistic header text
   output$lm_vif_header <- renderUI({
     if(max(length(input$preds_cont), length(input$preds_cat)) == 0) {
-      HTML("")
+      HTML("<b>Variable Inflation Factor (VIF) to Diagnose Multicollinearity: </b>")
     }
-    else if(length(input$preds_cont) <= 1) {
+    else {
       HTML("<b>Variable Inflation Factor (VIF) to Diagnose Multicollinearity: </b>
-           <br> Select at least two continuous predictors to obtain VIF statistics.")
-    } else {
-      HTML("<b>VIF Statistics to Diagnose Multicollinearity: </b> <br> Note that it is 
-      easiest to diagnose multicollinearity prior to performing variable transformations 
-      and without including categorical predictors.")
+           <br> Select at least two continuous predictors to obtain VIF statistics. Note that the
+           VIF statistics presented below are generated from a model which does not do not 
+           incorporate categorical variables or interaction terms.")
     }
   })
   ## generate text of linear model formula. note that the first object in the transformation
   ## data frame will always be the target variable
-  lm_formula_txt <- reactive({
-    model_terms <- c(dat_tran() %>% .$tran_form, dat_int())
+  lm_formula_func <- function(vif_model = FALSE) {
+    if(vif_model == FALSE) {
+      model_terms <- c(dat_tran() %>% .$tran_form, dat_int())
+    } else if (length(input$preds_cat) == 0) {
+      model_terms <- c(dat_tran() %>% .$tran_form)
+    } else {
+      model_terms <- c(dat_tran() %>% .$tran_form %>% .[.!= input$preds_cat])
+    }
     paste0(model_terms[1], " ~ ", 
            paste0(model_terms[2:length(model_terms)],  
                   collapse = " + "))
+  }
+  ## lm formula text
+  lm_formula_txt <- reactive({
+    lm_formula_func()
   })
   ## run regression and output model summary
   regression_model <- reactive(lm(formula = lm_formula_txt(), data = dat()))
@@ -561,15 +575,17 @@ server <- function(input, output, session) {
     }
   })
   ## output VIF statistics if >= 2 continuous predictors
-  output$lm_vif_stats <- renderDataTable(
+  output$lm_vif_stats <- renderDataTable({
     if(length(input$preds_cont) >= 2) {
-      vif(regression_model()) %>%
+      lm(formula = lm_formula_func(vif_model = TRUE), data = dat()) %>%
+        vif %>% 
         data.frame %>%
         rownames_to_column(var = "Variable") %>%
         set_colnames(c("Variable", "VIF")) %>%
         mutate(VIF = VIF %>% round(digits = 3)) %>%
         datatable(options=list(dom='t'), rownames = F)
-    })
+    }
+  })
   ## output regression diagnostic plots
   output$lm_diagnostics <- renderPlot({
     if(max(length(input$preds_cont), length(input$preds_cat)) >= 1) {
