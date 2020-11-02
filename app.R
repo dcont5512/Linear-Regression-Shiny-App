@@ -67,7 +67,7 @@ plot_cat_bar <- function(data, pred_cat_selected, pred_cat_fill) {
 }
 ## function to render stacked categorical bar chart with fill (if specified)
 plot_cat_stack <- function(data, pred_cat_selected, pred_cat_fill) {
-  df <- plot_cat_dat(data, pred_cat_selected, pred_cat_fill)
+  df <- plot_cat_dat(dat(), pred_cat_selected, pred_cat_fill)
   if(pred_cat_fill %>% length == 0) {
     plot <- df %>% 
       mutate(var_name = pred_cat_selected) %>% 
