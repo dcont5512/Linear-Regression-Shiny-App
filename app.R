@@ -10,6 +10,7 @@ library(ggpubr)
 library(kableExtra)
 library(gbRd)
 library(data.table)
+library(DT)
 library(DataExplorer)
 
 ## set transformation options for target variable and continuous predictors
@@ -217,11 +218,13 @@ ui <-  dashboardPage(
                                column(width = 6, plotOutput("plot_stack")))),
              ## linear model output generator, includes formula, summary, and VIF statistics
              tabPanel("Linear Model",
-                      htmlOutput(outputId = "lm_formula"),
-                      div(style = "height:12.5px"),
-                      verbatimTextOutput(outputId = "lm_summary"),
-                      htmlOutput(outputId = "lm_vif_header"),
-                      verbatimTextOutput(outputId = "lm_vif_stats")),
+                      fluidRow(column(width = 8, 
+                                      htmlOutput(outputId = "lm_formula"),
+                                      div(style = "height:12.5px"),
+                                      verbatimTextOutput(outputId = "lm_summary")),
+                               column(width = 4, 
+                                      htmlOutput(outputId = "lm_vif_header"),
+                                      dataTableOutput(outputId = "lm_vif_stats")))),
              ## linear model diagnostic plots
              tabPanel("Diagnostic Plots",
                       plotOutput("lm_diagnostics", height = "600px")),
@@ -558,9 +561,14 @@ server <- function(input, output, session) {
     }
   })
   ## output VIF statistics if >= 2 continuous predictors
-  output$lm_vif_stats <- renderPrint(
+  output$lm_vif_stats <- renderDataTable(
     if(length(input$preds_cont) >= 2) {
-      vif(regression_model())
+      vif(regression_model()) %>%
+        data.frame %>%
+        rownames_to_column(var = "Variable") %>%
+        set_colnames(c("Variable", "VIF")) %>%
+        mutate(VIF = VIF %>% round(digits = 3)) %>%
+        datatable(options=list(dom='t'), rownames = F)
     })
   ## output regression diagnostic plots
   output$lm_diagnostics <- renderPlot({
