@@ -13,6 +13,24 @@ library(gbRd)
 library(data.table)
 library(DT)
 library(DataExplorer)
+library(waiter)
+
+## Text objects
+
+text_fun <- function(x) {
+  div(style = "height:10px")
+  HTML(x)
+  div(style = "height:10px")
+}
+
+text_corr <- "<b>Correlation Matrix: </b>Shown below is a correlation matrix which includes univariate 
+distributions, scatterplots, and correlation coefficients for all continuous variables in the dataset. Note
+that correlation matrices can take some time to render; to output a correlation matrix, please click the
+'generate matrix' button below. Other application operations will be queued until the matrix is finished
+rendering."
+
+text_bar <- "<b>Bar Plots: </b>Shown below are bar plots for categorical variables in the dataset. If the 
+dataset does not include any categorical variables, then this section will be blank."
 
 ## set transformation options for target variable and continuous predictors
 tran_opts <- list(
@@ -91,6 +109,11 @@ plot_cat_stack <- function(data, pred_cat_selected, pred_cat_fill) {
 # names(pkg_list) <- pkg_names
 # pkg_list <- pkg_list[lapply(pkg_list,length)>0]
 
+data_list <- ls("package:datasets") %>% 
+  map(~get(.x))
+names(data_list) <- ls("package:datasets")
+data_list <- data_list[lapply(data_list,class) == "data.frame"] %>% names
+
 ## create base UI
 ui <-  dashboardPage(
   dashboardHeader(title = "Dom's Linear Model Builder", titleWidth = 375),
@@ -101,7 +124,8 @@ ui <-  dashboardPage(
       menuItem("Select Dataset", tabName = "dataset",
                selectInput("dataset", label = "Dataset", 
                            selected = "mtcars",
-                           choices = c("mtcars", "diamonds"),
+                           ## choices = c("mtcars", "diamonds"),
+                           choices = data_list,
                            width = "100%"),
                div(style = "height:5px")),
       # ls("package:datasets")
@@ -160,17 +184,24 @@ ui <-  dashboardPage(
   ),
   dashboardBody(
     fluidRow(
+      use_waiter(),
       tabBox(width = 12, height = NULL,
-             ## instructions
-             tabPanel("Instructions"),
              ## data dictionary tab
              tabPanel("Data Overview",
                       dataTableOutput("dataframe"), 
                       htmlOutput(outputId = "data_dictionary")),
              ## correlation matrix (can take long time to load)
              tabPanel("Summary Plots",
-                      plotOutput(outputId = "cor_matrix", height = 600),
-                      plotOutput(outputId = "bar_lots", height = 300)),
+                      HTML(text_corr),
+                      div(style = "height:10px"),
+                      actionButton("corr_generate",
+                                   "Generate Matrix"),
+                      div(style = "height:10px"),
+                      uiOutput("cor_matrix_ui"),
+                      div(style = "height:10px"),
+                      HTML(text_bar),
+                      div(style = "height:10px"),
+                      uiOutput("bar_plot_ui")),
              ## plots for continuous variables transformation analysis
              tabPanel("Cont. Variables",
                       ## continuous variable selector
@@ -250,7 +281,8 @@ server <- function(input, output, session) {
   ## define data frame and variable choice lists
   dat <- reactive(get(input$dataset))
   var_names <- reactive(list(continuous = dat() %>% select_if(is.numeric) %>% colnames %>% sort,
-                             categorical = dat() %>% select_if(is.factor) %>% colnames %>% sort))
+                             categorical = c(dat() %>% select_if(is.factor) %>% colnames,
+                                             dat() %>% select_if(is.factor) %>% colnames) %>% sort))
   ## update target selector based on data frame
   observeEvent(input$dataset, {
     updateSelectizeInput(session, "target", choices = var_names()[["continuous"]])
@@ -265,28 +297,46 @@ server <- function(input, output, session) {
   observeEvent(input$dataset, {
     updateSelectizeInput(session, inputId = "preds_cont",
                          selected = "")
-    })
-    ## update categorical variable selector based on data frame
-    observeEvent(input$dataset, {
-      updateSelectizeInput(session, "preds_cat", choices = var_names()[["categorical"]])
-    })
-    ## render data table
-    output$dataframe <- renderDataTable(dat(), 
-                                        options = list(pageLength = 5,
-                                                       lengthMenu = list(c(5, 10, 25, 50), 
-                                                                         c("5", "10", "25", "50"))))
-    ## render help file from selected data set (if available)
-    output$data_dictionary <- renderUI({
-      Rd <- Rd_fun(help(input$dataset)) 
-      outfile <- tempfile(fileext = ".html")
-      Rd2HTML(Rd, outfile, package = "",
-              stages = c("install", "render"))
-      includeHTML(outfile)
-    })
-    ## render correlation matrix for continuous variables
-    output$cor_matrix <- renderPlot(dat() %>% select_if(is.numeric) %>% ggpairs)
-    ## render bar plots matrix for categorical variables
-    output$bar_lots <- renderPlot(dat() %>% plot_bar())
+  })
+  ## update categorical variable selector based on data frame
+  observeEvent(input$dataset, {
+    updateSelectizeInput(session, "preds_cat", choices = var_names()[["categorical"]])
+  })
+  ## render data table
+  output$dataframe <- renderDataTable(dat(), 
+                                      options = list(pageLength = 5,
+                                                     lengthMenu = list(c(5, 10, 25, 50), 
+                                                                       c("5", "10", "25", "50"))))
+  ## render help file from selected data set (if available)
+  output$data_dictionary <- renderUI({
+    Rd <- Rd_fun(help(input$dataset)) 
+    outfile <- tempfile(fileext = ".html")
+    Rd2HTML(Rd, outfile, package = "",
+            stages = c("install", "render"))
+    includeHTML(outfile)
+  })
+  ## corr matrix ui
+  observeEvent(input$corr_generate, {
+    output$cor_matrix_ui <- renderUI(plotOutput(outputId = "cor_matrix", height = 600))
+  })
+  ## render correlation matrix for continuous variables
+  observeEvent(input$corr_generate, {
+    output$cor_matrix <- renderPlot({
+      Waiter$new(id = "cor_matrix")$show()
+      dat() %>% select_if(is.numeric) %>% ggpairs})
+  })
+  ## clear bar plots when switching datasets
+  observeEvent(input$dataset, {
+    output$cor_matrix_ui <- NULL
+  })
+  ## render bar plot ui
+  output$bar_plot_ui <- renderUI({
+    if(length(var_names()[["categorical"]]) != 0) {
+      plotOutput(outputId = "bar_plots", height = 300)  
+    }
+  })
+  ## render bar plots matrix for categorical variables
+  output$bar_plots <- renderPlot(dat() %>% plot_bar())
   ## render UI for continuous variable transformations
   output$preds_tran_ui <- renderUI({
     ## function to generate transformation selector for each continuous variable
