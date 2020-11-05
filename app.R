@@ -27,10 +27,10 @@ text_corr <- "<b>Correlation Matrix: </b>Shown below is a correlation matrix whi
 distributions, scatterplots, and correlation coefficients for all continuous variables in the dataset. Note
 that correlation matrices can take some time to render; to output a correlation matrix, please click the
 'generate matrix' button below. Other application operations will be queued until the matrix is finished
-rendering."
+rendering.<br><br>"
 
 text_bar <- "<b>Bar Plots: </b>Shown below are bar plots for categorical variables in the dataset. If the 
-dataset does not include any categorical variables, then this section will be blank."
+dataset does not include any categorical variables, then this section will be blank.<br><br>"
 
 ## set transformation options for target variable and continuous predictors
 tran_opts <- list(
@@ -193,14 +193,11 @@ ui <-  dashboardPage(
              ## correlation matrix (can take long time to load)
              tabPanel("Summary Plots",
                       HTML(text_corr),
-                      div(style = "height:10px"),
                       actionButton("corr_generate",
                                    "Generate Matrix"),
                       div(style = "height:10px"),
                       uiOutput("cor_matrix_ui"),
-                      div(style = "height:10px"),
                       HTML(text_bar),
-                      div(style = "height:10px"),
                       uiOutput("bar_plot_ui")),
              ## plots for continuous variables transformation analysis
              tabPanel("Cont. Variables",
