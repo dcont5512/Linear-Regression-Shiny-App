@@ -27,10 +27,25 @@ text_corr <- "<b>Correlation Matrix: </b>Shown below is a correlation matrix whi
 distributions, scatterplots, and correlation coefficients for all continuous variables in the dataset. Note
 that correlation matrices can take some time to render; to output a correlation matrix, please click the
 'generate matrix' button below. Other application operations will be queued until the matrix is finished
-rendering.<br><br>"
+rendering.</p>"
 
-text_bar <- "<b>Bar Plots: </b>Shown below are bar plots for categorical variables in the dataset. If the 
-dataset does not include any categorical variables, then this section will be blank.<br><br>"
+text_bar <- "</p><b>Bar Plots: </b>Shown below are bar plots for categorical variables in the dataset. If the 
+dataset does not include any categorical variables, then this section will be blank.</p>"
+
+text_lm <- "<b>Linear Model: </b>This page shows the summary output for your linear model. Note that you 
+must select a target variable and at least one predictor variable, whether continuous or categorical, to
+generate a linear model.</p>"
+
+text_vif <- "<b>Variable Inflation Factor (VIF) to Diagnose Multicollinearity: </b> You must select at least 
+two continuous predictors to obtain VIF statistics. Note that the VIF statistics are generated from a model 
+which does not do not incorporate categorical variables or interaction terms.</p>"
+
+text_comp <- "<b>Model Comparisons: </b>It is often beneficial to compare two models to find out if their
+different forms are statistically different. Even if one model performs nominally better than another model,
+that does not mean that the better performing model is meaningfully different than the comparison model, and
+it is usually recommended to select the less complex model. The tool below compares two linear models using
+an analysis of variance (ANOVA) test. To use it, copy and paste the formula from the 'model formula' section
+above and click 'Compare Models'.</p>"
 
 ## set transformation options for target variable and continuous predictors
 tran_opts <- list(
@@ -249,22 +264,22 @@ ui <-  dashboardPage(
                                column(width = 6, plotOutput("plot_stack")))),
              ## linear model output generator, includes formula, summary, and VIF statistics
              tabPanel("Linear Model",
+                      HTML(text_lm),
                       fluidRow(column(width = 8, 
                                       htmlOutput(outputId = "lm_formula"),
-                                      div(style = "height:12.5px"),
                                       verbatimTextOutput(outputId = "lm_summary")),
                                column(width = 4, 
-                                      htmlOutput(outputId = "lm_vif_header"),
+                                      HTML(text_vif),
                                       dataTableOutput(outputId = "lm_vif_stats"))),
+                      fluidRow(column(width = 8, HTML(text_comp))),
                       fluidRow(column(width = 4, 
                                       textInput(inputId = "comp_lm_1", label = "Model 1", 
                                                 value = "", placeholder = "Linear model formula")),
                                column(width = 4, 
                                       textInput(inputId = "comp_lm_2", label = "Model 2", 
-                                                value = "", placeholder = "Linear model formula")),
-                               column(width = 3,
-                                      div(style = "height:24px"),
-                                      actionButton(inputId = "lm_comp_run", label = "Compare"))),
+                                                value = "", placeholder = "Linear model formula"))),
+                                      div(style = "height:2px"),
+                                      actionButton(inputId = "lm_comp_run", label = "Compare Models"),
                       verbatimTextOutput("lm_comp_summary")),
              ## linear model diagnostic plots
              tabPanel("Diagnostic Plots",
@@ -534,6 +549,7 @@ server <- function(input, output, session) {
   ## generate qq plot of selected continuous variable
   output$plot_qq <- renderPlot({
     plot_reqs()
+    browser()
     dat() %>%
       ggplot(aes_string(sample = plot_selected())) +
       stat_qq() +
@@ -576,24 +592,24 @@ server <- function(input, output, session) {
   })
   ## update header of linear model formula based on whether a target and at least one predictor 
   ## has been selected. if this condition is true, print linear model formula
-  output$lm_formula <- renderUI({
-    if(max(length(input$preds_cont), length(input$preds_cat)) == 0) {
-      HTML(paste0("<b> Select a target variable and at least one continuous or categorical predictor to 
-                  generate a linear model. </b> "))
+  lm_ready <- reactive({
+    if(length(input$target) == 1 & max(length(input$preds_cont), length(input$preds_cat)) >= 1) {
+      TRUE
     } else {
-      HTML(paste0("<b> Formula: </b> ", lm_formula_txt()))
+      FALSE
     }
   })
-  ## update VIF statistic header text
-  output$lm_vif_header <- renderUI({
-    if(max(length(input$preds_cont), length(input$preds_cat)) == 0) {
-      HTML("<b>Variable Inflation Factor (VIF) to Diagnose Multicollinearity: </b>")
+  output$lm_formula <- renderUI({
+    if(lm_ready() != TRUE) {
+      HTML("<b>Model Formula: </b>")
+    } else {
+      HTML(paste0("<b>Model Formula: </b>", lm_formula_txt(), "<p>"))
     }
-    else {
-      HTML("<b>Variable Inflation Factor (VIF) to Diagnose Multicollinearity: </b>
-           <br> Select at least two continuous predictors to obtain VIF statistics. Note that the
-           VIF statistics presented below are generated from a model which does not do not 
-           incorporate categorical variables or interaction terms.")
+  })
+  ## lm formula text
+  lm_formula_txt <- reactive({
+    if(lm_ready() == TRUE) {
+    lm_formula_func()
     }
   })
   ## generate text of linear model formula. note that the first object in the transformation
@@ -610,14 +626,14 @@ server <- function(input, output, session) {
            paste0(model_terms[2:length(model_terms)],  
                   collapse = " + "))
   }
-  ## lm formula text
-  lm_formula_txt <- reactive({
-    lm_formula_func()
-  })
   ## run regression and output model summary
-  regression_model <- reactive(lm(formula = lm_formula_txt(), data = dat()))
+  regression_model <- reactive({
+    if(lm_ready() == TRUE) {
+      lm(formula = lm_formula_txt(), data = dat()) 
+    }
+  })
   output$lm_summary <- renderPrint({
-    if(max(length(input$preds_cont), length(input$preds_cat)) >= 1) {
+    if(lm_ready() == TRUE) {
       summary(regression_model())
     }
   })
