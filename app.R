@@ -23,6 +23,15 @@ text_fun <- function(x) {
   div(style = "height:10px")
 }
 
+text_inst <- "This app allows users to interactively build and tune linear models. Users are able to select
+from more than 100 pre-loaded datasets, or upload their own dataset, and build their model. To upload a dataset,
+the data must be in .RData format. After selecting a dataset, you can begin to build your model immediately,
+or explore the data using tabs 1 and 2."
+
+text_data <- "<b>Data Overview: </b>This page allows you to examine your data in its raw form, independent
+of any model transformations. Use the search, sort, and filter options to further explore your data. When 
+using a pre-loaded dataset, this page also shows the data's help file.</p>"
+
 text_corr <- "<b>Correlation Matrix: </b>Shown below is a correlation matrix which includes univariate 
 distributions, scatterplots, and correlation coefficients for all continuous variables in the dataset. Note
 that correlation matrices can take some time to render; to output a correlation matrix, please click the
@@ -46,6 +55,25 @@ that does not mean that the better performing model is meaningfully different th
 it is usually recommended to select the less complex model. The tool below compares two linear models using
 an analysis of variance (ANOVA) test. To use it, copy and paste the formula from the 'model formula' section
 above and click 'Compare Models'.</p>"
+
+text_cont <- "<b>Continuous Variables: </b>This page shows four different charts to better understand a 
+continuous variable of interest. Note that the 'select fill' option can be used to color the histogram, 
+density, and scatter plots by a selected categorical variable. All charts on this page are responsive to 
+the variable transformations specified on the side-bar menu. Users should know that that polynomial 
+transformations do not change the underlying data, so these transformations will only appear on the 
+scatter plot</p>"
+
+text_diag <- "<b>Diagnostic Plots: </b>This page shows four key model diagnostic plots. These plots can be
+used to determine whether your model satisfies regression model assumptions. All charts on this page are 
+responsive to the variable transformations specified on the side-bar menu. Note that you must selected a
+target variable and at least one predictor variable, whether continuous or categorical, to generate a linear
+model and its associated diagnostic plots</p>"
+
+text_cat <- "<b>Categorical Variables: </b>This page shows two charts to better understand a categorical
+variable of interest; a bar plot showing counts by category; and a stacked bar-chart which shows percentage
+totals per category. Note that the 'select fill' option can be used to color plots by another categorical 
+variable. You must selected at least two categorical variables for the fill option to be available. When no 
+fill is selected, the plot are still colored, although the fill is based on the underlying variable categories.</p>"
 
 ## set transformation options for target variable and continuous predictors
 tran_opts <- list(
@@ -142,7 +170,7 @@ ui <-  dashboardPage(
                            ## choices = c("mtcars", "diamonds"),
                            choices = data_list,
                            width = "100%"),
-               div(style = "height:5px")),
+               fileInput("file", "Upload Dataset", accept = c(".RData"), width = "100%")),
       # ls("package:datasets")
       fluidRow(
         column(width = 6,
@@ -203,6 +231,7 @@ ui <-  dashboardPage(
       tabBox(width = 12, height = NULL,
              ## data dictionary tab
              tabPanel("Data Overview",
+                      HTML(text_data),
                       dataTableOutput("dataframe"), 
                       htmlOutput(outputId = "data_dictionary")),
              ## correlation matrix (can take long time to load)
@@ -216,6 +245,7 @@ ui <-  dashboardPage(
                       uiOutput("bar_plot_ui")),
              ## plots for continuous variables transformation analysis
              tabPanel("Cont. Variables",
+                      HTML(text_cont),
                       ## continuous variable selector
                       fluidRow(column(width = 3,
                                       selectizeInput(inputId = "cont_plot", 
@@ -234,21 +264,19 @@ ui <-  dashboardPage(
                                                      options = list(placeholder = "None",
                                                                     maxItems = 1))),
                                column(width = 6,
-                                      plotOutput("legend", height = "75px"))
-                      ),
-                      radioButtons(inputId = "type_plot", 
-                                   label = "Visualize Distribution Using:", 
-                                   choices = c("Histogram", "Density Plot"), 
-                                   selected = "Histogram",
-                                   inline = T),
-                      ## histogram, qq plot, and scatter plots for continuous variable selected
+                                      plotOutput("legend", height = "75px"))),
+                      # histogram, qq plot, and scatter plots for continuous variable selected
                       fluidRow(column(width = 6, 
                                       plotOutput(outputId = "plot_hist", height = "300px")),
                                column(width = 6, 
-                                      plotOutput(outputId = "plot_scatter", height = "300px"))),
-                      plotOutput(outputId = "plot_qq", height = "300px")),
+                                      plotOutput(outputId = "plot_dens", height = "300px"))),
+                      fluidRow(column(width = 6, 
+                                      plotOutput(outputId = "plot_scatter", height = "300px")),
+                               column(width = 6, 
+                                      plotOutput(outputId = "plot_qq", height = "300px")))),
              ## categorical selector for plot diagnostics
              tabPanel("Cat. Variables", 
+                      HTML(text_cat),
                       fluidRow(column(width = 3,
                                       selectizeInput(inputId = "cat_plot",
                                                      label = "Select Variable",
@@ -278,11 +306,12 @@ ui <-  dashboardPage(
                                column(width = 4, 
                                       textInput(inputId = "comp_lm_2", label = "Model 2", 
                                                 value = "", placeholder = "Linear model formula"))),
-                                      div(style = "height:2px"),
-                                      actionButton(inputId = "lm_comp_run", label = "Compare Models"),
+                      div(style = "height:2px"),
+                      actionButton(inputId = "lm_comp_run", label = "Compare Models"),
                       verbatimTextOutput("lm_comp_summary")),
              ## linear model diagnostic plots
              tabPanel("Diagnostic Plots",
+                      HTML(text_diag),
                       plotOutput("lm_diagnostics", height = "600px"))
       )
     )
@@ -291,7 +320,11 @@ ui <-  dashboardPage(
 
 server <- function(input, output, session) {
   ## define data frame and variable choice lists
-  dat <- reactive(get(input$dataset))
+  dat <- reactive({
+    if(length(input$file) == 1) {
+      
+    }
+    get(input$dataset)})
   var_names <- reactive(list(continuous = dat() %>% select_if(is.numeric) %>% colnames %>% sort,
                              categorical = c(dat() %>% select_if(is.factor) %>% colnames,
                                              dat() %>% select_if(is.factor) %>% colnames) %>% sort))
@@ -505,16 +538,21 @@ server <- function(input, output, session) {
   output$plot_hist <- renderPlot({
     plot_reqs()
     if(input$plot_fill %>% length != 0) {
+      plot <-  dat() %>% ggplot(aes_string(x = plot_selected(), fill = input$plot_fill)) +
+        geom_histogram(alpha = 0.5)
+    } else {
+      plot <- dat() %>% ggplot(aes_string(x = plot_selected())) + geom_histogram()
+    }
+    plot + theme(legend.position = "none")
+  })
+  output$plot_dens <- renderPlot({
+    plot_reqs()
+    if(input$plot_fill %>% length != 0) {
       plot <-  dat() %>% ggplot(aes_string(x = plot_selected(), fill = input$plot_fill))
     } else {
       plot <- dat() %>% ggplot(aes_string(x = plot_selected()))
     }
-    if(input$type_plot == "Histogram") {
-      plot <- plot + geom_histogram()
-    } else {
-      plot <- plot + geom_density(alpha = 0.5)
-    }
-    plot + theme(legend.position = "none")
+    plot + geom_density(alpha = 0.5) + theme(legend.position = "none")
   })
   ## function to generate scatter plot where y-axis is target variable and x-axis is specified
   ## continuous variable. note that unlike the histogram, we store this as a function, as it 
@@ -543,13 +581,14 @@ server <- function(input, output, session) {
       theme(legend.position = "bottom", 
             legend.title=element_text(size = 14,
                                       family = "Helvetica Neue",
-                                      face = "bold"))
+                                      face = "bold"),
+            legend.key.size = unit(1.5, "line")) +
+      guides(colour = guide_legend(override.aes = list(size=5)))
     get_legend(plot_fill_legend) %>% as_ggplot
   })
   ## generate qq plot of selected continuous variable
   output$plot_qq <- renderPlot({
     plot_reqs()
-    browser()
     dat() %>%
       ggplot(aes_string(sample = plot_selected())) +
       stat_qq() +
@@ -609,7 +648,7 @@ server <- function(input, output, session) {
   ## lm formula text
   lm_formula_txt <- reactive({
     if(lm_ready() == TRUE) {
-    lm_formula_func()
+      lm_formula_func()
     }
   })
   ## generate text of linear model formula. note that the first object in the transformation
@@ -646,6 +685,7 @@ server <- function(input, output, session) {
         rownames_to_column(var = "Variable") %>%
         set_colnames(c("Variable", "VIF")) %>%
         mutate(VIF = VIF %>% round(digits = 3)) %>%
+        arrange(-VIF) %>% 
         datatable(options=list(dom='t'), rownames = F)
     }
   })
