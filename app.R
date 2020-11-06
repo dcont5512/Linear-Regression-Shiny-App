@@ -15,6 +15,8 @@ library(DT)
 library(DataExplorer)
 library(waiter)
 
+options(shiny.maxRequestSize = 30*1024^2)
+
 ## Text objects
 
 text_fun <- function(x) {
@@ -322,9 +324,16 @@ server <- function(input, output, session) {
   ## define data frame and variable choice lists
   dat <- reactive({
     if(length(input$file) == 1) {
-      
+      ext <- tools::file_ext(input$file$name)
+      switch(ext,
+             RData = load(input$file$datapath),
+             validate("Invalid file; Please upload a .RData file")
+      )
+      return(sub(".RData$", "", basename(input$file$name))) %>% get
+    } else {
+      get(input$dataset)
     }
-    get(input$dataset)})
+  })
   var_names <- reactive(list(continuous = dat() %>% select_if(is.numeric) %>% colnames %>% sort,
                              categorical = c(dat() %>% select_if(is.factor) %>% colnames,
                                              dat() %>% select_if(is.factor) %>% colnames) %>% sort))
