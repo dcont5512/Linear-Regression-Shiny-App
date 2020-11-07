@@ -167,12 +167,11 @@ ui <-  dashboardPage(
     sidebarMenu(
       menuItem("Instructions", tabName = "dataset"),
       menuItem("Select Dataset", tabName = "dataset",
-               selectInput("dataset", label = "Dataset", 
-                           selected = "mtcars",
-                           ## choices = c("mtcars", "diamonds"),
-                           choices = data_list,
-                           width = "100%"),
-               fileInput("file", "Upload Dataset", accept = c(".RData"), width = "100%")),
+               radioButtons("type", "Data Source:",
+                            choices = c("BaseR", "Upload"), selected = "BaseR",
+                            inline = T),
+               uiOutput("dataselect"),
+               div(style = "height:5px")),
       # ls("package:datasets")
       fluidRow(
         column(width = 6,
@@ -321,24 +320,40 @@ ui <-  dashboardPage(
 )
 
 server <- function(input, output, session) {
+  ## render data select UI
+  output$dataselect <- renderUI({
+    if(input$type == "BaseR") {
+      selectizeInput("file", "Select Dataset",
+                     choices = c("mtcars", "diamonds"),
+                     multiple = T,
+                     options = list(placeholder = "Click to select",
+                                    maxItems = 1))
+    } else {
+      fileInput("file", NULL, accept = c(".RData"))
+    }
+  })
   ## define data frame and variable choice lists
   dat <- reactive({
-    if(length(input$file) == 1) {
+    if(input$type == "BaseR") {
+      get(input$file)
+    } else {
+      req(input$file)
       ext <- tools::file_ext(input$file$name)
       switch(ext,
              RData = load(input$file$datapath),
              validate("Invalid file; Please upload a .RData file")
       )
       return(sub(".RData$", "", basename(input$file$name))) %>% get
-    } else {
-      get(input$dataset)
     }
   })
-  var_names <- reactive(list(continuous = dat() %>% select_if(is.numeric) %>% colnames %>% sort,
-                             categorical = c(dat() %>% select_if(is.factor) %>% colnames,
-                                             dat() %>% select_if(is.factor) %>% colnames) %>% sort))
+  var_names <- reactive({
+    req(input$file)
+    list(continuous = dat() %>% select_if(is.numeric) %>% colnames %>% sort,
+         categorical = c(dat() %>% select_if(is.factor) %>% colnames,
+                         dat() %>% select_if(is.factor) %>% colnames) %>% sort)
+  })
   ## update target selector based on data frame
-  observeEvent(input$dataset, {
+  observeEvent(input$file, {
     updateSelectizeInput(session, "target", choices = var_names()[["continuous"]])
   })
   ## update continuous variable selector options to exclude target variable
@@ -348,26 +363,38 @@ server <- function(input, output, session) {
                          selected = isolate(input$preds_cont))
   })
   ## update continuous variable selector when data frame changes
-  observeEvent(input$dataset, {
+  observeEvent(input$file, {
     updateSelectizeInput(session, inputId = "preds_cont",
+                         selected = "")
+    updateSelectizeInput(session, inputId = "preds_cat",
                          selected = "")
   })
   ## update categorical variable selector based on data frame
-  observeEvent(input$dataset, {
+  observeEvent(input$file, {
     updateSelectizeInput(session, "preds_cat", choices = var_names()[["categorical"]])
   })
   ## render data table
-  output$dataframe <- renderDataTable(dat(), 
-                                      options = list(pageLength = 5,
-                                                     lengthMenu = list(c(5, 10, 25, 50), 
-                                                                       c("5", "10", "25", "50"))))
+  output$dataframe <- renderDataTable({
+    if(length(input$file) != 0) {
+      data.table(dat(), 
+                 options = list(pageLength = 5,
+                                lengthMenu = list(c(5, 10, 25, 50), 
+                                                  c("5", "10", "25", "50"))))
+    }
+  })
   ## render help file from selected data set (if available)
   output$data_dictionary <- renderUI({
-    Rd <- Rd_fun(help(input$dataset)) 
-    outfile <- tempfile(fileext = ".html")
-    Rd2HTML(Rd, outfile, package = "",
-            stages = c("install", "render"))
-    includeHTML(outfile)
+    if(length(input$file) != 0) {
+      if(input$type == "BaseR") {
+        Rd <- Rd_fun(help(input$file))
+        outfile <- tempfile(fileext = ".html")
+        Rd2HTML(Rd, outfile, package = "",
+                stages = c("install", "render"))
+        includeHTML(outfile)
+      } else {
+        "Data dictionaries are not available for uploaded files"
+      }
+    }
   })
   ## corr matrix ui
   observeEvent(input$corr_generate, {
