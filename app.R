@@ -14,6 +14,7 @@ library(data.table)
 library(DT)
 library(DataExplorer)
 library(waiter)
+library(DescTools)
 
 options(shiny.maxRequestSize = 30*1024^2)
 
@@ -85,20 +86,22 @@ tran_opts <- list(
 )
 
 ## create function to implement transformation(s) on target/predictors
-tran_func <- function(pred, trans) {
-  switch(trans,
-         "None" = pred,
-         "Reciprocal" = paste0("I(1/", pred, ")"),
-         "Squared" = paste0("I(", pred, "^2)"),
-         "Square Root" = paste0("sqrt(", pred, ")"),
-         "Natural" = paste0("log(", pred, ")"),
-         "Base 2" = paste0("log2(", pred, ")"),
-         "Base 10" = paste0("log10(", pred, ")"),
-         "2 degree" = paste0("poly(", pred, ", 2)"),
-         "3 degree" = paste0("poly(", pred, ", 3)"),
-         "4 degree" = paste0("poly(", pred, ", 4)"),
-         "5 degree" = paste0("poly(", pred, ", 5)"),
-  )
+tran_func <- function(pred, trans, usage) {
+  if(usage == "scatter" & trans == "Reciprocal") {paste0("1/", pred)}
+  else if(usage == "model" & trans == "Reciprocal") {paste0("I(1/", pred, ")")}
+  else if(usage == "scatter" & trans == "Squared") {paste0(pred, "^2")}
+  else if(usage == "model" & trans == "Squared") {paste0("I(", pred, "^2)")}
+  else{switch(trans,
+              "None" = pred,
+              "Square Root" = paste0("sqrt(", pred, ")"),
+              "Natural" = paste0("log(", pred, ")"),
+              "Base 2" = paste0("log2(", pred, ")"),
+              "Base 10" = paste0("log10(", pred, ")"),
+              "2 degree" = paste0("poly(", pred, ", 2)"),
+              "3 degree" = paste0("poly(", pred, ", 3)"),
+              "4 degree" = paste0("poly(", pred, ", 4)"),
+              "5 degree" = paste0("poly(", pred, ", 5)"))
+  }
 }
 
 ## function to obtain counts of selected categorical variable and fill (if specified)
@@ -506,13 +509,15 @@ server <- function(input, output, session) {
                             tran_list = c(input$tran_target, tran_preds),
                             stringsAsFactors = F) %>%
       rowwise %>%
-      mutate(tran_form = tran_func(var_list, tran_list)) %>%
+      mutate(tran_form = tran_func(var_list, tran_list, "model"),
+             tran_form_scatter = tran_func(var_list, tran_list, "scatter")) %>%
       ungroup %>%
       select(-tran_list) %>%
       ## finally, append the categorical variable names to this data frame, even though
       ## they cannot have transformations performed on them
       rbind(data.frame(var_list = input$preds_cat,
-                       tran_form = input$preds_cat))
+                       tran_form = input$preds_cat,
+                       tran_form_scatter = input$preds_cat))
   })
   ## create an object which stores the text of interaction terms to be included in linear 
   ## model. the first step in this process is to create a two-column data frame in which
@@ -559,7 +564,11 @@ server <- function(input, output, session) {
   ## obtain transformation statements for target variable and selected continuous variable
   ## from transformation data frame. these will be used in create plot statements
   plot_selected <- reactive({
-    dat_tran() %>% filter(var_list == input$cont_plot) %>% .$tran_form
+    dat_tran() %>% 
+      filter(var_list == input$cont_plot) %>% 
+      mutate(plot_form = ifelse(tran_form %like% '%poly%', var_list,
+                                ifelse(tran_form == tran_form_scatter, tran_form, tran_form_scatter))) %>% 
+      .$plot_form
   })
   plot_target <- reactive({
     dat_tran() %>% filter(var_list == input$target) %>% .$tran_form
@@ -574,7 +583,8 @@ server <- function(input, output, session) {
   output$plot_hist <- renderPlot({
     plot_reqs()
     if(input$plot_fill %>% length != 0) {
-      plot <-  dat() %>% ggplot(aes_string(x = plot_selected(), fill = input$plot_fill)) +
+      plot <-  dat() %>% ggplot(aes_string(x = plot_selected(), 
+                                           fill = input$plot_fill)) +
         geom_histogram(alpha = 0.5)
     } else {
       plot <- dat() %>% ggplot(aes_string(x = plot_selected())) + geom_histogram()
@@ -607,8 +617,18 @@ server <- function(input, output, session) {
   ## generate scatter plot 
   output$plot_scatter <- renderPlot({
     plot_reqs()
-    plot_scatter_func(x = plot_selected(), fill = input$plot_fill) +
+    plot <- plot_scatter_func(x = plot_selected(), fill = input$plot_fill) +
       theme(legend.position = "none")
+    select_trans <- dat_tran() %>% 
+      filter(var_list == input$cont_plot) %>% 
+      .$tran_form
+    select_trans_poly <- str_extract_all(select_trans, "[0-9]") %>% as.numeric
+    if(select_trans %like% '%poly%') {
+      plot + stat_smooth(method = "lm", se = TRUE, fill = NA,
+                         formula= y ~ poly(x, select_trans_poly, raw = TRUE), colour="red")
+    } else {
+      plot
+    }
   })
   ## legend render
   output$legend <- renderPlot({
