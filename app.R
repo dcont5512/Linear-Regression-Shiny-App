@@ -20,6 +20,7 @@ options(shiny.maxRequestSize = 30*1024^2)
 
 ## Text objects
 
+
 text_fun <- function(x) {
   div(style = "height:10px")
   HTML(x)
@@ -379,7 +380,7 @@ server <- function(input, output, session) {
   ## render data table
   output$dataframe <- renderDataTable({
     if(length(input$file) != 0) {
-      data.table(dat(), 
+      datatable(dat(), 
                  options = list(pageLength = 5,
                                 lengthMenu = list(c(5, 10, 25, 50), 
                                                   c("5", "10", "25", "50"))))
