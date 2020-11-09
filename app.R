@@ -183,12 +183,12 @@ ui <-  dashboardPage(
       menuItem("Additional Data Options",
                ## data select
                fluidRow(column(width = 6,
-                               radioButtons(inputId = "data_sample", label = "Sample Rows:",
+                               radioButtons(inputId = "data_complete", label = "Complete Rows Only:",
                                             choices = c("Yes", "No"), 
                                             selected = "No",
                                             inline = FALSE)),
                         column(width = 6, 
-                               radioButtons(inputId = "data_complete", label = "Complete Rows Only:",
+                               radioButtons(inputId = "data_sample", label = "Sample Rows:",
                                             choices = c("Yes", "No"), 
                                             selected = "No",
                                             inline = FALSE))),
@@ -367,8 +367,31 @@ server <- function(input, output, session) {
       )
       dat <- sub(".RData$", "", basename(input$data_file$name)) %>% get
     }
+    if(input$data_complete == "Yes" & input$data_sample == "Yes") {
+      na.omit(dat) %>% 
+        sample_n(input$data_sample_size)
+    } else if (input$data_complete == "Yes" & input$data_sample == "No") {
+      na.omit(dat)
+    } else if (input$data_complete == "No" & input$data_sample == "Yes") {
+      dat %>% sample_n(input$data_sample_size)
+    } else {
+      dat
+    } 
+  })
+  ## data environment for sample size
+  dat_sample <- reactive({
+    if(input$data_source == "BaseR") {
+      dat <-  get(input$data_file)
+    } else {
+      file_type <- tools::file_ext(input$data_file$name)
+      switch(file_type,
+             RData = load(input$data_file$datapath),
+             validate("Invalid file; Please upload a .RData file")
+      )
+      dat <- sub(".RData$", "", basename(input$data_file$name)) %>% get
+    }
     if(input$data_complete == "Yes") {
-      dat <- na.omit(dat)
+      na.omit(dat)
     } else {
       dat
     } 
@@ -378,9 +401,9 @@ server <- function(input, output, session) {
     if(input$data_sample == "Yes") {
       sliderInput(inputId = "data_sample_size", label = "Sample Size:",
                   min = 1,
-                  max = nrow(dat()),
+                  max = nrow(dat_sample()),
                   step = 1,
-                  value = nrow(dat()), width = "100%")
+                  value = nrow(dat_sample()), width = "100%")
     }
   })
   # data table render
