@@ -17,6 +17,7 @@ library(DescTools)
 library(mlbench)
 library(AppliedPredictiveModeling)
 library(shinyjs)
+library(plotly)
 
 ## bug list
 ## make sure that wrong file type message appears in sidebar
@@ -24,6 +25,7 @@ library(shinyjs)
 ## bar_plot() not working with data explorer
 
 options(shiny.maxRequestSize = 30*1024^2)
+
 
 ## text objects
 text_inst <- "This app allows users to interactively build and tune linear models. Users are able to select
@@ -93,12 +95,6 @@ data_list <- object_list %>% map(~(is.data.frame(get(.x)))) %>% as.character
 names(data_list) <- object_list
 ## keep only names of data frames
 choice_list <- data_list %>% .[matches("TRUE", vars=.)] %>% names %>% sort
-## keep only names of data frames
-drop_list <- data_list %>% .[matches("FALSE", vars=.)] %>% names %>% sort
-## clean work space
-rm(pkg_list, object_list, data_list)
-rm(list = drop_list)
-rm(drop_list)
 
 ## transformation options
 tran_opts <- list("Simple" = c("None",  "Reciprocal", "Squared", "Square Root"),
@@ -176,7 +172,7 @@ ui <-  dashboardPage(
   dashboardSidebar(
     width = 375,
     sidebarMenu(
-      menuItem("Select Dataset",
+      menuItem("Select Data",
                ## data select
                radioButtons(inputId = "data_source", label = "Data Source:",
                             choices = c("BaseR", "Upload"), 
@@ -184,6 +180,19 @@ ui <-  dashboardPage(
                             inline = T),
                uiOutput(outputId = "data_select_ui"),
                div(style = "height:5px")),
+      menuItem("Additional Data Options",
+               ## data select
+               fluidRow(column(width = 6,
+                               radioButtons(inputId = "data_sample", label = "Sample Rows:",
+                                            choices = c("Yes", "No"), 
+                                            selected = "No",
+                                            inline = FALSE)),
+                        column(width = 6, 
+                               radioButtons(inputId = "data_complete", label = "Complete Rows Only:",
+                                            choices = c("Yes", "No"), 
+                                            selected = "No",
+                                            inline = FALSE))),
+               uiOutput("data_sample_ui")),
       fluidRow(
         column(width = 6,
                ## target variable select
@@ -251,32 +260,39 @@ ui <-  dashboardPage(
                       uiOutput(outputId = "bar_plot")),
              ## continuous variable plots
              tabPanel("Continuous Variables",
+                      
                       HTML(text = text_cont),
                       fluidRow(
                         ## variable select
-                        column(width = 3,
+                        column(width = 2,
                                selectizeInput(inputId = "cont_plot_var", label = "Select Variable", 
                                               choices = "", 
                                               multiple = TRUE,
                                               options = list(placeholder = "None",
                                                              maxItems = 1))),
                         ## fill select
-                        column(width = 3,
+                        column(width = 2,
                                selectizeInput(inputId = "cont_plot_fill", 
                                               label = "Select Fill", 
                                               choices = "", 
                                               multiple = TRUE,
                                               options = list(placeholder = "None",
                                                              maxItems = 1))),
+                        column(width = 2,
+                               radioButtons(inputId = "cont_plot_int",
+                                            label = "Interactive Plots:",
+                                            choices = c("Yes", "No"),
+                                            selected = "No",
+                                            inline = FALSE)),
                         # plot objects
                         column(width = 6,
                                plotOutput(outputId = "cont_plot_legend", height = "75px"))),
                       fluidRow(c("cont_plot_hist", "cont_plot_dens") %>% 
                                  map(~column(width = 6, 
-                                             plotOutput(outputId = .x, height = "300px")))),
+                                             plotlyOutput(outputId = .x, height = "300px")))),
                       fluidRow(c("cont_plot_scatter", "cont_plot_qq") %>% 
                                  map(~column(width = 6, 
-                                             plotOutput(outputId = .x, height = "300px"))))),
+                                             plotlyOutput(outputId = .x, height = "300px"))))),
              ## categorical variable plots
              tabPanel("Categorical Variables", 
                       HTML(text = text_cat),
@@ -294,7 +310,7 @@ ui <-  dashboardPage(
                         column(width = 6,
                                plotOutput("cat_plot_legend", height = "75px"))),
                       fluidRow(c("cat_plot_bar", "cat_plot_stack") %>% 
-                                 map(~column(width = 6, plotOutput(.x))))),
+                                 map(~column(width = 6, plotlyOutput(.x))))),
              ## linear model
              tabPanel("Linear Model",
                       HTML(text = text_lm),
@@ -331,7 +347,7 @@ server <- function(input, output, session) {
   output$data_select_ui <- renderUI({
     if(input$data_source == "BaseR") {
       selectizeInput(inputId = "data_file", label = "Select Dataset:",
-                     choices = choice_list,
+                     choices = c("diamonds", choice_list),
                      multiple = T,
                      options = list(placeholder = "Click to select",
                                     maxItems = 1))
@@ -342,17 +358,32 @@ server <- function(input, output, session) {
   ## data environment
   dat <- reactive({
     if(input$data_source == "BaseR") {
-      get(input$data_file)
+      dat <-  get(input$data_file)
     } else {
       file_type <- tools::file_ext(input$data_file$name)
       switch(file_type,
              RData = load(input$data_file$datapath),
              validate("Invalid file; Please upload a .RData file")
       )
-      sub(".RData$", "", basename(input$data_file$name)) %>% get
+      dat <- sub(".RData$", "", basename(input$data_file$name)) %>% get
+    }
+    if(input$data_complete == "Yes") {
+      dat <- na.omit(dat)
+    } else {
+      dat
+    } 
+  })
+  ## data sample ui
+  output$data_sample_ui <- renderUI({
+    if(input$data_sample == "Yes") {
+      sliderInput(inputId = "data_sample_size", label = "Sample Size:",
+                  min = 1,
+                  max = nrow(dat()),
+                  step = 1,
+                  value = nrow(dat()), width = "100%")
     }
   })
-  ## data table render
+  # data table render
   output$data <- renderDataTable({
     if(length(input$data_file) != 0) {
       datatable(dat(), 
@@ -562,7 +593,7 @@ server <- function(input, output, session) {
     req(input$cont_plot_var)
   }
   ## generate histogram
-  output$cont_plot_hist <- renderPlot({
+  output$cont_plot_hist <- renderPlotly({
     plot_reqs()
     ## no fill
     if(input$cont_plot_fill %>% length == 0) {
@@ -573,10 +604,11 @@ server <- function(input, output, session) {
                                           fill = input$cont_plot_fill)) +
         geom_histogram(alpha = 0.5)
     }
-    plot + theme(legend.position = "none")
+    plot <- plot + theme(legend.position = "none")
+    ggplotly(plot)
   })
   ## generate density plot
-  output$cont_plot_dens <- renderPlot({
+  output$cont_plot_dens <- renderPlotly({
     plot_reqs()
     ## no fill
     if(input$cont_plot_fill %>% length == 0) {
@@ -585,15 +617,17 @@ server <- function(input, output, session) {
       ## fill
       plot <- dat() %>% ggplot(aes_string(x = plot_selected(), fill = input$cont_plot_fill))
     }
-    plot + geom_density(alpha = 0.5) + theme(legend.position = "none")
+    plot <- plot + geom_density(alpha = 0.5) + theme(legend.position = "none")
+    ggplotly(plot)
   })
   ## generate quantile-quantile plot
-  output$cont_plot_qq <- renderPlot({
+  output$cont_plot_qq <- renderPlotly({
     plot_reqs()
-    dat() %>%
+    plot <- dat() %>%
       ggplot(aes_string(sample = plot_selected())) +
       stat_qq() +
       stat_qq_line()
+    ggplotly(plot)
   })
   ## scatter plot function, stored as function to extract legend later
   plot_scatter_func <- function(x, fill) {
@@ -610,7 +644,7 @@ server <- function(input, output, session) {
     plot + geom_point()
   }
   ## generate scatter plot 
-  output$cont_plot_scatter <- renderPlot({
+  output$cont_plot_scatter <- renderPlotly({
     plot_reqs()
     plot <- plot_scatter_func(x = plot_selected(), fill = input$cont_plot_fill) +
       theme(legend.position = "none")
@@ -620,10 +654,11 @@ server <- function(input, output, session) {
       .$tran_form
     if(select_trans %like% '%poly%') {
       select_trans_poly <- str_extract_all(select_trans, "[0-9]") %>% as.numeric
-      plot + stat_smooth(method = "lm", se = TRUE, fill = NA,
-                         formula= y ~ poly(x, select_trans_poly, raw = TRUE), colour="red")
+      plot <- plot + stat_smooth(method = "lm", se = TRUE, fill = NA,
+                                 formula= y ~ poly(x, select_trans_poly, raw = TRUE), colour="red")
+      ggplotly(plot)
     } else {
-      plot
+      ggplotly(plot)
     }
   })
   ## isolate and generate legend for continuous variable plots
@@ -654,18 +689,20 @@ server <- function(input, output, session) {
                                   maxItems = 1))
   })
   ## generate bar plot
-  output$cat_plot_bar <- renderPlot({
+  output$cat_plot_bar <- renderPlotly({
     req(input$cat_plot_var)
-    plot_cat_bar(data = dat(), 
-                 pred_cat_selected = input$cat_plot_var, 
-                 pred_cat_fill = input$cat_fill)
+    plot <- plot_cat_bar(data = dat(), 
+                         pred_cat_selected = input$cat_plot_var, 
+                         pred_cat_fill = input$cat_fill)
+    ggplotly(plot)
   })
   ## generate stacked percentage bar plot
   output$cat_plot_stack <- renderPlot({
     req(input$cat_plot_var)
-    plot_cat_stack(data = dat(), 
-                   pred_cat_selected = input$cat_plot_var, 
-                   pred_cat_fill = input$cat_fill)
+    plot <- plot_cat_stack(data = dat(), 
+                           pred_cat_selected = input$cat_plot_var, 
+                           pred_cat_fill = input$cat_fill)
+    ggplotly(plot)
   })
   ## isolate and generate legend for categorical variable plots
   output$cat_plot_legend <- renderPlot({
