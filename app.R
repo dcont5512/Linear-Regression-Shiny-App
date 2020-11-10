@@ -193,6 +193,8 @@ ui <-  dashboardPage(
                                             selected = "No",
                                             inline = FALSE))),
                uiOutput("data_sample_ui")),
+      menuItem("Recode Variables",
+               uiOutput("data_recode")),
       fluidRow(
         column(width = 6,
                ## target variable select
@@ -406,10 +408,66 @@ server <- function(input, output, session) {
                   value = nrow(dat_sample()), width = "100%")
     }
   })
+  ## data recode default options
+  var_recode_default <- reactive({
+    sapply(dat(), function(x) if(is.factor(x)) "factor" else toString(class(x))) %>% 
+      data.frame %>% 
+      rownames_to_column() %>% 
+      set_names(c("var_name", "var_type")) %>% 
+      mutate(var_type = ifelse(var_type %in% c("numeric", "integer"), "continuous", "categorical"))})
+  ## generate recode UI
+  output$data_recode <- renderUI({
+    # recode selectors
+    var_recode_select <-  function(var_name, var_type) {
+      input_name <- paste0(var_name, "_recode")
+      radioButtons(inputId = input_name,
+                   label = var_name,
+                   choices = c("continuous", "categorical"),
+                   selected = var_type)
+    }
+    ## left-side recode number by row (i.e. row 1 = 1, row 2 = 3, row 3 = 5)
+    recode_row_idx <- var_recode_default() %>% nrow %>% seq_len
+    recode_row_idx <- recode_row_idx[recode_row_idx %% 2 == 1]
+    ## recode row filter function
+    recode_row_func <- function(x) {var_recode_default() %>% filter(row_number() == x)}
+    ## generate selectors
+    ## render re-coding options
+    recode_row_idx %>%
+      map(~ if(.x + 1 %in% (var_recode_default() %>% nrow %>% seq_len)) {
+        recode_left_name <- recode_row_func(.x) %>% .$var_name
+        recode_left_type <- recode_row_func(.x) %>% .$var_type
+        recode_right_name <- recode_row_func(.x + 1) %>% .$var_name
+        recode_right_type <- recode_row_func(.x +1) %>% .$var_type
+        fluidRow(c("left", "right") %>% 
+                   map(~column(width = 6,
+                               var_recode_select(var_name = get(paste0("recode_", .x, "_name")),
+                                                 var_type = get(paste0("recode_", .x, "_type"))))))
+      } else {
+        ## generate ui when last predictor is an odd number
+        recode_left_name <- recode_row_func(.x) %>% .$var_name
+        recode_left_type <- recode_row_func(.x) %>% .$var_type
+        fluidRow(column(width = 6,
+                        var_recode_select(var_name = recode_left_name,
+                                          var_type = recode_left_type)))
+      })
+  })
+  ## recoded data
+  dat_recode <- reactive({
+    data.frame(var = var_recode_default() %>% .$var_name,
+               var_recode = var_recode_default() %>% .$var_name %>%
+                 map(~input[[paste0(.x, "_recode")]]) %>% unlist) %>%
+      mutate(var_recode_statement = paste0(var, " %>% ",
+                                           ifelse(var_recode == "continuous", "as.numeric", "as.factor"))) %>%
+      pmap(~dat() %>%
+             transmute(!! ..1 :=
+                         eval(rlang::parse_expr(..3)))) %>%
+      bind_cols(.)
+  })
   # data table render
   output$data <- renderDataTable({
+    req(input[[paste0(dat_vars()[["continuous"]][[1]], "_recode")]])
     if(length(input$data_file) != 0) {
-      datatable(dat(), 
+      datatable(dat_recode(), 
                 options = list(pageLength = 5,
                                lengthMenu = list(c(5, 10, 25, 50), 
                                                  c("5", "10", "25", "50")),
@@ -459,6 +517,7 @@ server <- function(input, output, session) {
   })
   ## correlation matrix ui
   observeEvent(input$corr_matrix_generate, {
+    browser()
     output$corr_matrix_ui <- renderUI(plotOutput(outputId = "corr_matrix", height = 600))
   })
   ## correlation matrix render
