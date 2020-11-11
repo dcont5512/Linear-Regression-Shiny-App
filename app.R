@@ -335,7 +335,7 @@ server <- function(input, output, session) {
   output$data_select_ui <- renderUI({
     if(input$data_source == "BaseR") {
       selectizeInput(inputId = "data_file", label = "Select Dataset:",
-                     choices = c("diamonds", choice_list),
+                     choices = choice_list,
                      multiple = T,
                      options = list(placeholder = "Click to select",
                                     maxItems = 1))
