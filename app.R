@@ -26,7 +26,6 @@ library(plotly)
 
 options(shiny.maxRequestSize = 30*1024^2)
 
-
 ## text objects
 text_inst <- "This app allows users to interactively build and tune linear models. Users are able to select
 from more than 100 pre-loaded datasets, or upload their own dataset, and build their model. To upload a dataset,
@@ -52,7 +51,7 @@ generate a linear model.</p>"
 
 text_vif <- "<b>Variable Inflation Factor (VIF) to Diagnose Multicollinearity: </b> You must select at least 
 two continuous predictors to obtain VIF statistics. Note that the VIF statistics are generated from a model 
-which does not do not incorporate categorical variables or interaction terms.</p>"
+which does not do not incorporate polynomials, categorical variables, or interaction terms.</p>"
 
 text_comp <- "<b>Model Comparisons: </b>It is often beneficial to compare two models to find out if their
 different forms are statistically different. Even if one model performs nominally better than another model,
@@ -96,6 +95,9 @@ fill is selected, the plot are still colored, although the fill is based on the 
 ## keep only names of data frames
 # choice_list <- data_list %>% .[matches("TRUE", vars=.)] %>% names %>% sort
 choice_list <- c("diamonds", "mtcars")
+
+## not like function
+`%notlike%` <- Negate(`%like%`)
 
 ## transformation options
 tran_opts <- list("Simple" = c("None",  "Reciprocal", "Squared", "Square Root"),
@@ -181,7 +183,7 @@ ui <-  dashboardPage(
                             inline = T),
                uiOutput(outputId = "data_select_ui"),
                div(style = "height:5px")),
-      menuItem("Additional Data Options",
+      menuItem("Filter Data",
                ## data select
                fluidRow(column(width = 6,
                                radioButtons(inputId = "data_complete", label = "Complete Rows Only:",
@@ -194,18 +196,13 @@ ui <-  dashboardPage(
                                             selected = "No",
                                             inline = FALSE))),
                uiOutput("data_sample_ui")),
-      menuItem("Recode Variables",
+      menuItem("Recode Data",
                uiOutput("data_recode")),
       menuItem("Model Terms", 
                fluidRow(
                  column(width = 6,
-                        ## target variable select
-                        selectizeInput(inputId = "target", label = "Target Variable:", 
-                                       choices = "",
-                                       multiple = TRUE,
-                                       selected = NULL,
-                                       options = list(placeholder = "Click to select",
-                                                      maxItems = 1))),
+                        ## target variable ui
+                        uiOutput("target_ui")),
                  column(width = 6, 
                         ## target variable transformation (exclude polynomials)
                         selectizeInput(inputId = "tran_target", 
@@ -215,19 +212,11 @@ ui <-  dashboardPage(
                                        selected = "None"))),
                fluidRow(
                  column(width = 6,
-                        ## continuous variables select
-                        selectizeInput(inputId = "preds_cont", 
-                                       label = "Continuous Variables:", 
-                                       choices = "",
-                                       multiple = TRUE,
-                                       options = list(placeholder = "None"))),
+                        ## continuous variables ui
+                        uiOutput("preds_cont_ui")),
                  column(width = 6,
-                        ## categorical variables select
-                        selectizeInput(inputId = "preds_cat",
-                                       label = "Categorical Variables:",
-                                       choices = "",
-                                       multiple = TRUE,
-                                       options = list(placeholder = "None"))))),
+                        ## categorical variables ui
+                        uiOutput("preds_cat_ui")))),
       ## continuous variable transformation ui
       menuItem("Variable Transformations",
                uiOutput(outputId = "preds_tran_ui")),
@@ -282,21 +271,15 @@ ui <-  dashboardPage(
                                               multiple = TRUE,
                                               options = list(placeholder = "None",
                                                              maxItems = 1))),
-                        column(width = 2,
-                               radioButtons(inputId = "cont_plot_int",
-                                            label = "Interactive Plots:",
-                                            choices = c("Yes", "No"),
-                                            selected = "No",
-                                            inline = FALSE)),
                         # plot objects
                         column(width = 6,
                                plotOutput(outputId = "cont_plot_legend", height = "75px"))),
                       fluidRow(c("cont_plot_hist", "cont_plot_dens") %>% 
                                  map(~column(width = 6, 
-                                             plotlyOutput(outputId = .x, height = "300px")))),
+                                             plotOutput(outputId = .x, height = "300px")))),
                       fluidRow(c("cont_plot_scatter", "cont_plot_qq") %>% 
                                  map(~column(width = 6, 
-                                             plotlyOutput(outputId = .x, height = "300px"))))),
+                                             plotOutput(outputId = .x, height = "300px"))))),
              ## categorical variable plots
              tabPanel("Categorical Variables", 
                       HTML(text = text_cat),
@@ -314,7 +297,7 @@ ui <-  dashboardPage(
                         column(width = 6,
                                plotOutput("cat_plot_legend", height = "75px"))),
                       fluidRow(c("cat_plot_bar", "cat_plot_stack") %>% 
-                                 map(~column(width = 6, plotlyOutput(.x))))),
+                                 map(~column(width = 6, plotOutput(.x))))),
              ## linear model
              tabPanel("Linear Model",
                       HTML(text = text_lm),
@@ -336,6 +319,7 @@ ui <-  dashboardPage(
                                                        value = "", placeholder = "Linear model formula")))),
                       div(style = "height:2px"),
                       actionButton(inputId = "lm_comp_run", label = "Compare Models"),
+                      div(style = "height:2px"),
                       verbatimTextOutput("lm_comp_summary")),
              ## linear model diagnostic plots
              tabPanel("Diagnostic Plots",
@@ -416,13 +400,14 @@ server <- function(input, output, session) {
       data.frame %>% 
       rownames_to_column() %>% 
       set_names(c("var_name", "var_type")) %>% 
-      mutate(var_type = ifelse(var_type %in% c("numeric", "integer"), "continuous", "categorical"))
+      mutate(var_type = ifelse(var_type %in% c("numeric", "integer"), "continuous", "categorical")) %>% 
+      arrange(var_name)
   }
   ## data recode default options
   var_recode_default <- reactive(var_orig_func(dat()))
   ## generate recode 
   output$data_recode <- renderUI({
-    # recode selectors
+    # recode selectors function
     var_recode_select <-  function(var_name, var_type) {
       input_name <- paste0(var_name, "_recode")
       radioButtons(inputId = input_name,
@@ -438,7 +423,7 @@ server <- function(input, output, session) {
     ## generate selectors
     ## render re-coding options
     recode_row_idx %>%
-      map(~ if(.x + 1 %in% (var_recode_default() %>% nrow %>% seq_len)) {
+      map(~ if((.x + 1) %in% (var_recode_default() %>% nrow %>% seq_len)) {
         recode_left_name <- recode_row_func(.x) %>% .$var_name
         recode_left_type <- recode_row_func(.x) %>% .$var_type
         recode_right_name <- recode_row_func(.x + 1) %>% .$var_name
@@ -461,13 +446,9 @@ server <- function(input, output, session) {
     vn <- var_recode_default() %>% .$var_name
     vrc <- vn %>%
       map(~input[[paste0(.x, "_recode")]]) %>% unlist
-    
-    cat("vn length ", length(vn), " :content: ",vn,"\n")
-    cat("vrc length ", length(vrc), " :content: ",vrc,"\n")
     if (length(vrc)!=length(vn)) {
       vrc <- var_orig_func(dat()) %>% 
         .$var_type
-      cat("* ALTERED vrc length ", length(vrc), " :content: ",vrc,"\n")
     }
     data.frame(var = vn,
                var_recode = vrc) %>%
@@ -481,11 +462,12 @@ server <- function(input, output, session) {
   # data table render
   output$data <- renderDataTable({
     if(length(input$data_file) != 0) {
-        datatable(dat_recode(), 
-                  options = list(pageLength = 5,
-                                 lengthMenu = list(c(5, 10, 25, 50), 
-                                                   c("5", "10", "25", "50")),
-                                 scrollX = TRUE))
+      datatable(dat_recode(), 
+                options = list(pageLength = 5,
+                               lengthMenu = list(c(5, 10, 25, 50), 
+                                                 c("5", "10", "25", "50")),
+                               scrollX = TRUE),
+                rownames = FALSE)
     }
   })
   ## data help file
@@ -509,19 +491,30 @@ server <- function(input, output, session) {
            map(~select_if(dat_recode(), .x) %>% 
                  colnames) %>% unlist %>% sort)
   })
-  ## target variable choices
-  observeEvent(input$data_file, {
-    updateSelectizeInput(session, "target", choices = dat_vars()[["continuous"]])
+  ## target variable ui
+  output$target_ui <- renderUI({
+    selectizeInput(inputId = "target", label = "Target Variable:", 
+                   choices = dat_vars()[["continuous"]],
+                   multiple = TRUE,
+                   selected = NULL,
+                   options = list(placeholder = "Click to select",
+                                  maxItems = 1))
   })
-  ## continuous variable choices
-  observeEvent(input$target, {
-    updateSelectizeInput(session, inputId = "preds_cont", 
-                         choices = setdiff(dat_vars()[["continuous"]], input$target),
-                         selected = isolate(input$preds_cont))
+  ## continuous variable ui
+  output$preds_cont_ui <- renderUI({
+    selectizeInput(inputId = "preds_cont", 
+                   label = "Continuous Variables:", 
+                   choices = setdiff(dat_vars()[["continuous"]], input$target),
+                   multiple = TRUE,
+                   options = list(placeholder = "None"))
   })
-  ## categorical variable choices
-  observeEvent(input$data_file, {
-    updateSelectizeInput(session, "preds_cat", choices = dat_vars()[["categorical"]])
+  ## categorical variable ui
+  output$preds_cat_ui <- renderUI({
+    selectizeInput(inputId = "preds_cat",
+                   label = "Categorical Variables:",
+                   choices = dat_vars()[["categorical"]],
+                   multiple = TRUE,
+                   options = list(placeholder = "None"))
   })
   ## update variable selections when data changes
   observeEvent(input$data_file, {
@@ -535,9 +528,8 @@ server <- function(input, output, session) {
   ## correlation matrix render
   observeEvent(input$corr_matrix_generate, {
     output$corr_matrix <- renderPlot({
-      browser()
       Waiter$new(id = "corr_matrix")$show()
-      dat() %>% select_if(is.numeric) %>% ggpairs})
+      dat_recode() %>% select_if(is.numeric) %>% ggpairs})
   })
   ## clear correlation matrix when data changes - broken
   observeEvent(input$data_file, {
@@ -643,7 +635,7 @@ server <- function(input, output, session) {
         filter((int_term_left != "None" | int_term_right != "None") & 
                  as.character(int_term_left) != as.character(int_term_right))
       ## filter out combinations (i.e. ab == ba, keep only one)
-      if(nrow(int_list) != 0) {
+      int_list <- if(nrow(int_list) != 0) {
         int_list <- unique(t(apply(int_list, 1, sort))) %>%
           data.frame %>%
           `colnames<-`(c("int_term_left", "int_term_right"))
@@ -651,7 +643,7 @@ server <- function(input, output, session) {
         int_list %>%
           inner_join(dat_tran(), by = c("int_term_left" = "var_name")) %>%
           inner_join(dat_tran(), by = c("int_term_right" = "var_name")) %>% 
-          select(int_term_left = 3, int_term_right = 4) %>% 
+          select(int_term_left = 3, int_term_right = 5) %>% 
           mutate(int_form = paste0(int_term_left, "*", int_term_right)) %>%
           .$int_form
       }
@@ -688,58 +680,55 @@ server <- function(input, output, session) {
     req(input$cont_plot_var)
   }
   ## generate histogram
-  output$cont_plot_hist <- renderPlotly({
+  output$cont_plot_hist <- renderPlot({
     plot_reqs()
     ## no fill
     if(input$cont_plot_fill %>% length == 0) {
-      plot <- dat() %>% ggplot(aes_string(x = plot_selected())) + geom_histogram()
+      plot <- dat_recode() %>% ggplot(aes_string(x = plot_selected())) + geom_histogram()
     } else {
       ## fill
-      plot <- dat() %>% ggplot(aes_string(x = plot_selected(), 
-                                          fill = input$cont_plot_fill)) +
+      plot <- dat_recode() %>% ggplot(aes_string(x = plot_selected(), 
+                                                 fill = input$cont_plot_fill)) +
         geom_histogram(alpha = 0.5)
     }
-    plot <- plot + theme(legend.position = "none")
-    ggplotly(plot)
+    plot + theme(legend.position = "none")
   })
   ## generate density plot
-  output$cont_plot_dens <- renderPlotly({
+  output$cont_plot_dens <- renderPlot({
     plot_reqs()
     ## no fill
     if(input$cont_plot_fill %>% length == 0) {
-      plot <- dat() %>% ggplot(aes_string(x = plot_selected()))
+      plot <- dat_recode() %>% ggplot(aes_string(x = plot_selected()))
     } else {
       ## fill
-      plot <- dat() %>% ggplot(aes_string(x = plot_selected(), fill = input$cont_plot_fill))
+      plot <- dat_recode() %>% ggplot(aes_string(x = plot_selected(), fill = input$cont_plot_fill))
     }
-    plot <- plot + geom_density(alpha = 0.5) + theme(legend.position = "none")
-    ggplotly(plot)
+    plot + geom_density(alpha = 0.5) + theme(legend.position = "none")
   })
   ## generate quantile-quantile plot
-  output$cont_plot_qq <- renderPlotly({
+  output$cont_plot_qq <- renderPlot({
     plot_reqs()
-    plot <- dat() %>%
+    dat_recode() %>%
       ggplot(aes_string(sample = plot_selected())) +
       stat_qq() +
       stat_qq_line()
-    ggplotly(plot)
   })
   ## scatter plot function, stored as function to extract legend later
   plot_scatter_func <- function(x, fill) {
     ## no fill
     if(fill %>% length == 0) {
-      plot <- dat() %>% ggplot(aes_string(x = x,
-                                          y = plot_target()))
+      plot <- dat_recode() %>% ggplot(aes_string(x = x,
+                                                 y = plot_target()))
     } else {
       ## fill
-      plot <-  dat() %>% ggplot(aes_string(x = x,
-                                           y = plot_target(),
-                                           color = fill))
+      plot <-  dat_recode() %>% ggplot(aes_string(x = x,
+                                                  y = plot_target(),
+                                                  color = fill))
     }
     plot + geom_point()
   }
   ## generate scatter plot 
-  output$cont_plot_scatter <- renderPlotly({
+  output$cont_plot_scatter <- renderPlot({
     plot_reqs()
     plot <- plot_scatter_func(x = plot_selected(), fill = input$cont_plot_fill) +
       theme(legend.position = "none")
@@ -749,11 +738,10 @@ server <- function(input, output, session) {
       .$tran_form
     if(select_trans %like% '%poly%') {
       select_trans_poly <- str_extract_all(select_trans, "[0-9]") %>% as.numeric
-      plot <- plot + stat_smooth(method = "lm", se = TRUE, fill = NA,
-                                 formula= y ~ poly(x, select_trans_poly, raw = TRUE), colour="red")
-      ggplotly(plot)
+      plot + stat_smooth(method = "lm", se = TRUE, fill = NA,
+                         formula= y ~ poly(x, select_trans_poly, raw = TRUE), colour="red")
     } else {
-      ggplotly(plot)
+      plot
     }
   })
   ## isolate and generate legend for continuous variable plots
@@ -784,25 +772,23 @@ server <- function(input, output, session) {
                                   maxItems = 1))
   })
   ## generate bar plot
-  output$cat_plot_bar <- renderPlotly({
+  output$cat_plot_bar <- renderPlot({
     req(input$cat_plot_var)
-    plot <- plot_cat_bar(data = dat(), 
-                         pred_cat_selected = input$cat_plot_var, 
-                         pred_cat_fill = input$cat_fill)
-    ggplotly(plot)
+    plot_cat_bar(data = dat_recode(), 
+                 pred_cat_selected = input$cat_plot_var, 
+                 pred_cat_fill = input$cat_fill)
   })
   ## generate stacked percentage bar plot
   output$cat_plot_stack <- renderPlot({
     req(input$cat_plot_var)
-    plot <- plot_cat_stack(data = dat(), 
-                           pred_cat_selected = input$cat_plot_var, 
-                           pred_cat_fill = input$cat_fill)
-    ggplotly(plot)
+    plot_cat_stack(data = dat_recode(), 
+                   pred_cat_selected = input$cat_plot_var, 
+                   pred_cat_fill = input$cat_fill)
   })
   ## isolate and generate legend for categorical variable plots
   output$cat_plot_legend <- renderPlot({
     req(input$cat_plot_var)
-    plot_fill_legend <- plot_cat_stack(data = dat(), 
+    plot_fill_legend <- plot_cat_stack(data = dat_recode(), 
                                        pred_cat_selected = input$cat_plot_var, 
                                        pred_cat_fill = input$cat_fill) +
       theme(legend.position = "bottom", 
@@ -825,11 +811,13 @@ server <- function(input, output, session) {
       ## full model
       model_terms <- c(dat_tran() %>% .$tran_form, dat_int())
     } else if (length(input$preds_cat) == 0) {
-      ## vif model w/ no categorical variables selected
-      model_terms <- c(dat_tran() %>% .$tran_form)
+      ## vif model w/ no categorical variables selected, discard polynomials
+      model_terms <- c(dat_tran() %>% .$tran_form %>% 
+                         discard(.p=str_detect, pattern = "poly"))
     } else {
       ## vif model excluding selected categorical variables
-      model_terms <- c(dat_tran() %>% .$tran_form %>% .[.!= input$preds_cat])
+      model_terms <- c(dat_tran() %>% .$tran_form %>% .[.!= input$preds_cat] %>% 
+                         discard(.p=str_detect, pattern = "poly"))
     }
     ## generate model formula - note first term always target
     paste0(model_terms[1], " ~ ", 
@@ -853,7 +841,7 @@ server <- function(input, output, session) {
   ## run linear model
   lm_model <- reactive({
     if(lm_ready() == TRUE) {
-      lm(formula = lm_formula_txt(), data = dat()) 
+      lm(formula = lm_formula_txt(), data = dat_recode()) 
     }
   })
   ## generate linear model summary
@@ -865,7 +853,7 @@ server <- function(input, output, session) {
   ## generate vif statistics (requirement: >= 2 continuous predictors)
   output$lm_vif <- renderDataTable({
     if(length(input$preds_cont) >= 2) {
-      lm(formula = lm_formula_func(vif_model = TRUE), data = dat()) %>%
+      lm(formula = lm_formula_func(vif_model = TRUE), data = dat_recode()) %>%
         vif %>% 
         data.frame %>%
         rownames_to_column(var = "Variable") %>%
@@ -879,8 +867,8 @@ server <- function(input, output, session) {
   observeEvent(input$lm_comp_run, {
     output$lm_comp_summary <- renderPrint({
       if(length(input$lm_comp_1) >= 1 & length(input$lm_comp_2) >= 1) {
-        model_1 <- lm(formula = formula(input$lm_comp_1), data = dat())
-        model_2 <- lm(formula = formula(input$lm_comp_2), data = dat())
+        model_1 <- lm(formula = formula(input$lm_comp_1), data = dat_recode())
+        model_2 <- lm(formula = formula(input$lm_comp_2), data = dat_recode())
         anova(model_1, model_2)
       }
     })
