@@ -18,11 +18,10 @@ library(mlbench)
 library(AppliedPredictiveModeling)
 library(shinyjs)
 library(plotly)
+library(readxl)
 
 ## bug list
 ## make sure that wrong file type message appears in sidebar
-## correlation matrix hide feature not working
-## bar_plot() not working with data explorer
 
 options(shiny.maxRequestSize = 30*1024^2)
 
@@ -79,22 +78,29 @@ totals per category. Note that the 'select fill' option can be used to color plo
 variable. You must selected at least two categorical variables for the fill option to be available. When no 
 fill is selected, the plot are still colored, although the fill is based on the underlying variable categories.</p>"
 
-## source packages for data frames
-#pkg_list <- c("mlbench", "AppliedPredictiveModeling", "datasets")
-## obtain names of data objects in each package
-#object_list <- pkg_list %>% 
-#m ap(~list(.x = data(package = .x)$results %>%
-#            data.frame %>% .$Item %>% sort %>% as.character)) %>% unlist %>% as.character
-## exclude any objects with parenthesis in name
-# object_list <- object_list[!grepl("\\(", object_list)]
-## load all remaining objects into environment
-# data(list = object_list)
-## determine whether object is a data frame
-# data_list <- object_list %>% map(~(is.data.frame(get(.x)))) %>% as.character 
-# names(data_list) <- object_list
-## keep only names of data frames
-# choice_list <- data_list %>% .[matches("TRUE", vars=.)] %>% names %>% sort
-choice_list <- c("diamonds", "mtcars")
+# source packages for data frames
+pkg_list <- c("mlbench", "AppliedPredictiveModeling", "datasets")
+# obtain names of data objects in each package
+object_list <- pkg_list %>%
+  map(~list(.x = data(package = .x)$results %>%
+              data.frame %>% .$Item %>% sort %>% as.character)) %>% unlist %>% as.character
+# exclude any objects with parenthesis in name
+object_list <- object_list[!grepl("\\(", object_list)]
+# load all remaining objects into environment
+data(list = object_list)
+# determine whether object is a data frame
+data_list <- object_list %>% map(~(is.data.frame(get(.x)))) %>% as.character
+names(data_list) <- object_list
+# keep only names of data frames
+choice_list <- data_list %>% .[matches("TRUE", vars=.)] %>% names %>% sort
+
+## variable names function
+var_names_func <-  function(x) {
+  list(continuous = x %>% select_if(is.numeric) %>% colnames %>% sort,
+       categorical = c("is.factor", "is.character") %>% 
+         map(~select_if(x, .x) %>% 
+               colnames) %>% unlist %>% sort)
+}  
 
 ## not like function
 `%notlike%` <- Negate(`%like%`)
@@ -170,32 +176,25 @@ plot_cat_stack <- function(data, pred_cat_selected, pred_cat_fill) {
 }
 
 ui <-  dashboardPage(
-  dashboardHeader(title = "Dom's Linear Model Builder", titleWidth = 375),
+  dashboardHeader(title = "Dom's Linear Model Builder", titleWidth = 370),
   ## dashboard sidebar
   dashboardSidebar(
-    width = 375,
+    width = 370,
     sidebarMenu(
       menuItem("Select Data",
                ## data select
-               radioButtons(inputId = "data_source", label = "Data Source:",
-                            choices = c("BaseR", "Upload"), 
-                            selected = "BaseR",
-                            inline = T),
+               fluidRow(column(width = 6, 
+                               radioButtons(inputId = "data_source", label = "Data Source:",
+                                            choices = c("BaseR", "Upload"), 
+                                            selected = "BaseR",
+                                            inline = T)),
+                        column(width = 6,
+                               radioButtons(inputId = "data_complete", label = "Complete Rows:",
+                                            choices = c("Yes", "No"), 
+                                            selected = "No",
+                                            inline = TRUE))),
                uiOutput(outputId = "data_select_ui"),
-               div(style = "height:5px")),
-      menuItem("Filter Data",
-               ## data select
-               fluidRow(column(width = 6,
-                               radioButtons(inputId = "data_complete", label = "Complete Rows Only:",
-                                            choices = c("Yes", "No"), 
-                                            selected = "No",
-                                            inline = FALSE)),
-                        column(width = 6, 
-                               radioButtons(inputId = "data_sample", label = "Sample Rows:",
-                                            choices = c("Yes", "No"), 
-                                            selected = "No",
-                                            inline = FALSE))),
-               uiOutput("data_sample_ui")),
+               div(style = "height:2px")),
       menuItem("Recode Data",
                uiOutput("data_recode")),
       menuItem("Model Terms", 
@@ -224,10 +223,10 @@ ui <-  dashboardPage(
       menuItem("Interaction Terms",
                div(style = "height:5px"),
                fluidRow(
-                 column(width = 6, 
+                 column(width = 5, 
                         actionButton(inputId = "intTermAdd", label = "Add Interaction",
                                      width = "140px")),
-                 column(width = 6, 
+                 column(width = 5, 
                         actionButton(inputId = "intTermRemove", label = "Remove Interaction",
                                      width = "140px"))),
                div(style = "height:5px"),
@@ -242,6 +241,7 @@ ui <-  dashboardPage(
              tabPanel("Data Overview",
                       HTML(text = text_data),
                       dataTableOutput(outputId = "data"), 
+                      div(style = "height:5px"),
                       htmlOutput(outputId = "data_dictionary")),
              ## correlation matrix
              tabPanel("Summary Plots",
@@ -250,21 +250,20 @@ ui <-  dashboardPage(
                       div(style = "height:10px"),
                       uiOutput(outputId = "corr_matrix_ui"),
                       HTML(text = text_bar),
-                      uiOutput(outputId = "bar_plot")),
+                      plotOutput(outputId = "bar_plot")),
              ## continuous variable plots
-             tabPanel("Continuous Variables",
-                      
+             tabPanel("Cont. Predictors",
                       HTML(text = text_cont),
                       fluidRow(
                         ## variable select
-                        column(width = 2,
+                        column(width = 3,
                                selectizeInput(inputId = "cont_plot_var", label = "Select Variable", 
                                               choices = "", 
                                               multiple = TRUE,
                                               options = list(placeholder = "None",
                                                              maxItems = 1))),
                         ## fill select
-                        column(width = 2,
+                        column(width = 3,
                                selectizeInput(inputId = "cont_plot_fill", 
                                               label = "Select Fill", 
                                               choices = "", 
@@ -281,7 +280,7 @@ ui <-  dashboardPage(
                                  map(~column(width = 6, 
                                              plotOutput(outputId = .x, height = "300px"))))),
              ## categorical variable plots
-             tabPanel("Categorical Variables", 
+             tabPanel("Cat. Predictors", 
                       HTML(text = text_cat),
                       fluidRow(
                         ## variable select
@@ -309,9 +308,14 @@ ui <-  dashboardPage(
                         ## vif statistics
                         column(width = 4, 
                                HTML(text = text_vif),
-                               dataTableOutput(outputId = "lm_vif"))),
-                      ## model comparisons
-                      fluidRow(column(width = 8, HTML(text = text_comp))),
+                               dataTableOutput(outputId = "lm_vif")))),
+             ## linear model diagnostic plots
+             tabPanel("Diagnostic Plots",
+                      HTML(text = text_diag),
+                      plotOutput("lm_plots", height = "600px")),
+             ## model comparisons
+             tabPanel("Model Comparison",
+                      HTML(text = text_comp),
                       fluidRow(c(1, 2) %>% 
                                  map(~column(width = 4, 
                                              textInput(inputId = paste0("lm_comp_", .x), 
@@ -320,11 +324,7 @@ ui <-  dashboardPage(
                       div(style = "height:2px"),
                       actionButton(inputId = "lm_comp_run", label = "Compare Models"),
                       div(style = "height:2px"),
-                      verbatimTextOutput("lm_comp_summary")),
-             ## linear model diagnostic plots
-             tabPanel("Diagnostic Plots",
-                      HTML(text = text_diag),
-                      plotOutput("lm_plots", height = "600px"))
+                      verbatimTextOutput("lm_comp_summary"))
       )
     )
   )
@@ -340,59 +340,36 @@ server <- function(input, output, session) {
                      options = list(placeholder = "Click to select",
                                     maxItems = 1))
     } else {
-      fileInput(inputId = "data_file", label =  "Upload File:", accept = c(".RData"))
-    }
-  })
-  ## data environment for sample size
-  dat_sample <- reactive({
-    if(input$data_source == "BaseR") {
-      dat <-  get(input$data_file)
-    } else {
-      file_type <- tools::file_ext(input$data_file$name)
-      switch(file_type,
-             RData = load(input$data_file$datapath),
-             validate("Invalid file; Please upload a .RData file")
-      )
-      dat <- sub(".RData$", "", basename(input$data_file$name)) %>% get
-    }
-    if(input$data_complete == "Yes") {
-      na.omit(dat)
-    } else {
-      dat
-    } 
-  })
-  ## data sample ui
-  output$data_sample_ui <- renderUI({
-    if(input$data_sample == "Yes") {
-      sliderInput(inputId = "data_sample_size", label = "Sample Size:",
-                  min = 1,
-                  max = nrow(dat_sample()),
-                  step = 1,
-                  value = nrow(dat_sample()), width = "100%")
+      file_types <- ".Rdata, .xlsx, .xls, .csv"
+      fileInput(inputId = "data_file", label =  "Upload File:", 
+                placeholder =  file_types, 
+                accept = file_types)
     }
   })
   ## data environment for app usage
   dat <- reactive({
     if(input$data_source == "BaseR") {
-      dat <-  get(input$data_file)
+      df <- get(input$data_file)
     } else {
       file_type <- tools::file_ext(input$data_file$name)
-      switch(file_type,
-             RData = load(input$data_file$datapath),
-             validate("Invalid file; Please upload a .RData file")
+      df <- switch(file_type,
+                   RData = load(input$data_file$datapath),
+                   xlsx = read_xlsx(input$data_file$datapath),
+                   xls = read_xls(input$data_file$datapath),
+                   csv = read_csv(input$data_file$datapath),
+                   validate("Invalid file; Please upload a .RData file")
       )
-      dat <- sub(".RData$", "", basename(input$data_file$name)) %>% get
+      df <- switch(file_type, 
+                   RData =  sub(".RData$", "", basename(input$data_file$name)) %>% get,
+                   xlsx = df,
+                   xls = df,
+                   csv = df)
     }
-    if(input$data_complete == "Yes" & input$data_sample == "Yes") {
-      na.omit(dat) %>% 
-        sample_n(input$data_sample_size)
-    } else if (input$data_complete == "Yes" & input$data_sample == "No") {
-      na.omit(dat)
-    } else if (input$data_complete == "No" & input$data_sample == "Yes") {
-      dat %>% sample_n(input$data_sample_size)
-    } else {
-      dat
-    } 
+    if (input$data_complete == "Yes") {
+      df <- na.omit(df)
+    }
+    df_elig_vars <- var_names_func(df) %>% unlist %>% as.character
+    df %>% select(df_elig_vars)
   })
   ## data recode default options function
   var_orig_func <- function(x) {
@@ -480,16 +457,13 @@ server <- function(input, output, session) {
                 stages = c("install", "render"))
         includeHTML(outfile)
       } else {
-        "Data dictionaries are not available for uploaded files"
+        HTML("<b>Data Dictionary: </b>: Data dictionaries are not available for uploaded files.")
       }
     }
   })
   ## variable names
   dat_vars <- reactive({
-    list(continuous = dat_recode() %>% select_if(is.numeric) %>% colnames %>% sort,
-         categorical = c("is.factor", "is.character") %>% 
-           map(~select_if(dat_recode(), .x) %>% 
-                 colnames) %>% unlist %>% sort)
+    var_names_func(dat_recode())
   })
   ## target variable ui
   output$target_ui <- renderUI({
@@ -503,7 +477,7 @@ server <- function(input, output, session) {
   ## continuous variable ui
   output$preds_cont_ui <- renderUI({
     selectizeInput(inputId = "preds_cont", 
-                   label = "Continuous Variables:", 
+                   label = "Cont. Predictors:", 
                    choices = setdiff(dat_vars()[["continuous"]], input$target),
                    multiple = TRUE,
                    options = list(placeholder = "None"))
@@ -511,7 +485,7 @@ server <- function(input, output, session) {
   ## categorical variable ui
   output$preds_cat_ui <- renderUI({
     selectizeInput(inputId = "preds_cat",
-                   label = "Categorical Variables:",
+                   label = "Cat. Predictors:",
                    choices = dat_vars()[["categorical"]],
                    multiple = TRUE,
                    options = list(placeholder = "None"))
@@ -535,13 +509,20 @@ server <- function(input, output, session) {
   observeEvent(input$data_file, {
     shinyjs::hide("corr_matrix_ui")
   })
-  ## bar plot ui
-  output$bar_plot <- renderUI({
-    if(length(dat_vars()[["categorical"]]) != 0) {
-      plotOutput(outputId = "bar_plots", height = 300)
-    }
+  ## bar plot render
+  observeEvent(input$data_file, {
+    output$bar_plot <- renderPlot({
+      if(length(dat_vars()[["categorical"]]) != 0) {
+        dat_recode() %>% 
+          select(dat_vars()[["categorical"]]) %>%
+          gather %>% 
+          count(key, value, name = "total") %>% 
+          ggplot(aes(x = value, y = total)) +
+          geom_bar(stat = "identity") +
+          facet_wrap(. ~ key, ncol = 2, scales = "free") 
+      } 
+    })
   })
-  ## bar plot render output$bar_plots <- renderPlot(dat() %>% plot_bar())
   ## continuous variable transformation ui
   output$preds_tran_ui <- renderUI({
     ## variable transformation select function
