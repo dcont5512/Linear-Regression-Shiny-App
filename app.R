@@ -31,52 +31,69 @@ from more than 100 pre-loaded datasets, or upload their own dataset, and build t
 the data must be in .RData format. After selecting a dataset, you can begin to build your model immediately,
 or explore the data using tabs 1 and 2."
 
-text_data <- "<b>Data Overview: </b>This page allows you to examine your data in its raw form, independent
-of any model transformations. Use the search, sort, and filter options to further explore your data. When 
-using a pre-loaded dataset, this page also shows the data's help file.</p>"
+text_data <- "<b>Description: </b> This page provides an overview of the selected data, including 
+the data in its raw form, as well as the help file associated with any R datasets. Note that 
+while the data on this page does reflect recoding of variables, it does not reflect any variable 
+transformations.</p>"
 
-text_corr <- "<b>Correlation Matrix: </b>Shown below is a correlation matrix which includes univariate 
-distributions, scatterplots, and correlation coefficients for all continuous variables in the dataset. Note
-that correlation matrices can take some time to render; to output a correlation matrix, please click the
-'generate matrix' button below. Other application operations will be queued until the matrix is finished
-rendering.</p>"
+text_summ <- "<b>Description: </b> This page provides a number of useful charts which summarise the 
+selected data. This includes a correlation matrix of all continuous variables, which show their univariate 
+distributions, scatterplots, and correlation coefficients. To generate this plot, click the ‘Generate 
+Matrix’ button below. Please be aware that correlation matrices can take some time to render, particularly
+for larger datasets, and that all other application operations will be queued until the correlation matrix
+is finishing rendering. Also shown on this page are bar plots for any categorical variables in the dataset.
+If the dataset does not include any categorical variables, then this section will be blank. Note that while 
+does not reflect any variable transformations, it does reflect recoding of variables.</p>"
 
-text_bar <- "</p><b>Bar Plots: </b>Shown below are bar plots for categorical variables in the dataset. If the 
-dataset does not include any categorical variables, then this section will be blank.</p>"
+text_cont <- "<b>Description: </b>This page shows four plots to better understand a selected continuous 
+variable of interest. These include: (1) a histogram which shows the underlying distribution of the variable;
+(2) a density plot which  uses a kernel density estimate to show the probability density function of the 
+variable; (3) a quantile-quantile, or QQ, plot to compare the distribution of that variable to a normal 
+distribution; and (4) a scatterplot showing the relationship between that variable and the specified target 
+variable. Users are able to color these charts by specifying a categorical variable in the ‘Select Fill’ field. 
+For a variable to be available for selection or fill, it must be specified in the ‘model terms’ component of 
+the application. Users should also be aware that all charts on this page are responsive to any specified variable 
+transformations. Note that polynomial transformations will only be reflected as a polynomial curve in the 
+scatterplot as this type transformation does not change the underlying data, but rather adds additional terms 
+to it.</p>"
 
-text_lm <- "<b>Linear Model: </b>This page shows the summary output for your linear model. Note that you 
-must select a target variable and at least one predictor variable, whether continuous or categorical, to
-generate a linear model.</p>"
+text_cat <- "<b>Description: </b>This page shows two plots to better understand a categorical variable of interest. 
+These include: (1) a bar plot showing counts of all distinct values in the variable; and (2) a stacked bar plot 
+which shows percentage totals that each of these values account for among all observations. Users are able to color 
+these charts by specifying an additional categorical variable in the ‘Select Fill’ field. Please be aware that even
+when no coloring variable is specified, these charts will still be colored according the distinct values in the 
+primary variable as doing so provides better visual differentiation among values, particularly in the stacked bar 
+plot. For a categorical variable to be available for selection or fill, it must be specified in the ‘model terms’ 
+component of the application.</p>"
 
-text_vif <- "<b>Variable Inflation Factor (VIF) to Diagnose Multicollinearity: </b> You must select at least 
-two continuous predictors to obtain VIF statistics. Note that the VIF statistics are generated from a model 
-which does not do not incorporate polynomials, categorical variables, or interaction terms.</p>"
+text_lm <- "<b>Description: </b>This page provides summary information about the linear model created based on the 
+selections in the model terms, variable transformation, and interaction terms components of the application. Note 
+that you must select a target variable and at least one predictor variable to generate a linear model. This page 
+shows the linear model summary object, which includes the model's f-statistic, variable coefficients, significance 
+values, residual standard error, and r-squared values, among others. Also shown on this page are the variance 
+inflation factors (VIF) for any continuous variables in the dataset, which can be used to identify multi-collinearity
+among predictors. Note that the VIF factors are only available for models containing at least two continuous variables,
+and that these figures are generated from a model which does not incorporate categorical variables, or interaction 
+terms. Note however that VIF factors are responsive to variable transformations, with the exception of polynomial 
+transformations, which are excluded.</p>"
 
-text_comp <- "<b>Model Comparisons: </b>It is often beneficial to compare two models to find out if their
-different forms are statistically different. Even if one model performs nominally better than another model,
-that does not mean that the better performing model is meaningfully different than the comparison model, and
-it is usually recommended to select the less complex model. The tool below compares two linear models using
-an analysis of variance (ANOVA) test. To use it, copy and paste the formula from the 'model formula' section
-above and click 'Compare Models'.</p>"
+text_diag <- "<b>Description: </b>This page provides diagnostic plots for the linear model created based on the 
+selections in the model terms, variable transformation, and interaction terms components of the application.  
+Note that you must select a target variable and at least one predictor variable to generate a linear model and its 
+associated diagnostic plots. These plots can be used to determine whether your model satisfies the assumptions of 
+a regression model. The plots shown include: (1) a residuals vs fitted plot which can be used to diagnose non-linearity;
+(2) a quantile quantile, or QQ, plot which can be used to check whether residuals are normally distributed; (3) a 
+scale-location plot to check whether the residuals are spread equally along the ranges of predictors and thus identify
+heteroskedasticity/homoscedasticity; and (4) a residuals vs. leverage plot to identify high-leverage observations in
+the data which can have an outsized impact on model coefficients and standard errors.</p>"
 
-text_cont <- "<b>Continuous Variables: </b>This page shows four different charts to better understand a 
-continuous variable of interest. Note that the 'select fill' option can be used to color the histogram, 
-density, and scatter plots by a selected categorical variable. All charts on this page are responsive to 
-the variable transformations specified on the side-bar menu. Users should know that that polynomial 
-transformations do not change the underlying data, so these transformations will only appear on the 
-scatter plot</p>"
-
-text_diag <- "<b>Diagnostic Plots: </b>This page shows four key model diagnostic plots. These plots can be
-used to determine whether your model satisfies regression model assumptions. All charts on this page are 
-responsive to the variable transformations specified on the side-bar menu. Note that you must selected a
-target variable and at least one predictor variable, whether continuous or categorical, to generate a linear
-model and its associated diagnostic plots</p>"
-
-text_cat <- "<b>Categorical Variables: </b>This page shows two charts to better understand a categorical
-variable of interest; a bar plot showing counts by category; and a stacked bar-chart which shows percentage
-totals per category. Note that the 'select fill' option can be used to color plots by another categorical 
-variable. You must selected at least two categorical variables for the fill option to be available. When no 
-fill is selected, the plot are still colored, although the fill is based on the underlying variable categories.</p>"
+text_comp <- "<b>Description: </b>It is often beneficial to compare two models to find out if a more complex model 
+is significantly better at capture the data than the more simple model. This is because even if one model performs 
+nominally better than another model, that does not mean that the better performing model is meaningfully different 
+than the comparison model. In such cases, it is generally recommended to choose the less complex of the two models. 
+The tool below can be used to perform this analysis and compare two specified models using an analysis of variance 
+(ANOVA) test. To use this tool, copy and paste each model’s formula from the ‘Linear Model’ page into the boxes below
+and click 'Compare Models'. </p>"
 
 # source packages for data frames
 pkg_list <- c("mlbench", "AppliedPredictiveModeling", "datasets")
@@ -176,7 +193,7 @@ plot_cat_stack <- function(data, pred_cat_selected, pred_cat_fill) {
 }
 
 ui <-  dashboardPage(
-  dashboardHeader(title = "Dom's Linear Model Builder", titleWidth = 370),
+  dashboardHeader(title = "Interactive Linear Model Builder", titleWidth = 370),
   ## dashboard sidebar
   dashboardSidebar(
     width = 370,
@@ -185,8 +202,8 @@ ui <-  dashboardPage(
                ## data select
                fluidRow(column(width = 6, 
                                radioButtons(inputId = "data_source", label = "Data Source:",
-                                            choices = c("BaseR", "Upload"), 
-                                            selected = "BaseR",
+                                            choices = c("R", "Upload"), 
+                                            selected = "R",
                                             inline = T)),
                         column(width = 6,
                                radioButtons(inputId = "data_complete", label = "Complete Rows:",
@@ -234,6 +251,16 @@ ui <-  dashboardPage(
     )
   ),
   dashboardBody(
+    modal_confirm <- modalDialog(
+      "This app allows you to interactively build a linear model and see in real time how various parameter
+      selections impact different components of the model. To begin, click 'Select Data' at the left and select 
+      either a preloaded dataset from R, or upload one of your own. Note that the app automatically filters out
+      date objects from all files. After selecting your dataset, you can then recode variables as necessary; select 
+      your target and predictor variables; transform variables; and add interaction terms. The pages on the right-side 
+      of the app provide detailed, real-time information about your data and specific variables within it, as well 
+      as information about your linear model. ",
+      title = "Welcome"
+      ),
     fluidRow(
       use_waiter(),
       tabBox(width = 12, height = NULL,
@@ -245,11 +272,10 @@ ui <-  dashboardPage(
                       htmlOutput(outputId = "data_dictionary")),
              ## correlation matrix
              tabPanel("Summary Plots",
-                      HTML(text = text_corr),
+                      HTML(text = text_summ),
                       actionButton(inputId = "corr_matrix_generate", label = "Generate Matrix"),
                       div(style = "height:10px"),
                       uiOutput(outputId = "corr_matrix_ui"),
-                      HTML(text = text_bar),
                       plotOutput(outputId = "bar_plot")),
              ## continuous variable plots
              tabPanel("Cont. Predictors",
@@ -307,7 +333,7 @@ ui <-  dashboardPage(
                                verbatimTextOutput(outputId = "lm_summary")),
                         ## vif statistics
                         column(width = 4, 
-                               HTML(text = text_vif),
+                               HTML(text = "<b>Variance Inflation Factor (VIF): </b></p>"),
                                dataTableOutput(outputId = "lm_vif")))),
              ## linear model diagnostic plots
              tabPanel("Diagnostic Plots",
@@ -331,9 +357,13 @@ ui <-  dashboardPage(
 )
 
 server <- function(input, output, session) {
+  ## welcome message
+  observe({
+    showModal(modal_confirm)
+  }) 
   ## data select
   output$data_select_ui <- renderUI({
-    if(input$data_source == "BaseR") {
+    if(input$data_source == "R") {
       selectizeInput(inputId = "data_file", label = "Select Dataset:",
                      choices = choice_list,
                      multiple = T,
@@ -348,7 +378,7 @@ server <- function(input, output, session) {
   })
   ## data environment for app usage
   dat <- reactive({
-    if(input$data_source == "BaseR") {
+    if(input$data_source == "R") {
       df <- get(input$data_file)
     } else {
       file_type <- tools::file_ext(input$data_file$name)
@@ -450,7 +480,7 @@ server <- function(input, output, session) {
   ## data help file
   output$data_dictionary <- renderUI({
     if(length(input$data_file) != 0) {
-      if(input$data_source == "BaseR") {
+      if(input$data_source == "R") {
         Rd <- Rd_fun(help(input$data_file))
         outfile <- tempfile(fileext = ".html")
         Rd2HTML(Rd, outfile, package = "",
@@ -519,6 +549,7 @@ server <- function(input, output, session) {
           count(key, value, name = "total") %>% 
           ggplot(aes(x = value, y = total)) +
           geom_bar(stat = "identity") +
+          theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1)) +
           facet_wrap(. ~ key, ncol = 2, scales = "free") 
       } 
     })
