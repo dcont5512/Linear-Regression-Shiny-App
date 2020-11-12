@@ -487,11 +487,11 @@ server <- function(input, output, session) {
       }
     }
   })
+  ## variable names
+  dat_vars <- reactive({
+    var_names_func(dat_recode())
+  })
   observeEvent(input$data_file, {
-    ## variable names
-    dat_vars <- reactive({
-      var_names_func(dat_recode())
-    })
     ## target variable ui
     output$target_ui <- renderUI({
       selectizeInput(inputId = "target", label = "Target Variable:", 
@@ -545,20 +545,20 @@ server <- function(input, output, session) {
     shinyjs::hide("corr_matrix_ui")
   })
   ## bar plot render
-  observeEvent(input$data_file, {
-    output$bar_plot <- renderPlot({
-      if(length(dat_vars()[["categorical"]]) != 0) {
-        dat_recode() %>% 
-          select(dat_vars()[["categorical"]]) %>%
-          gather %>% 
-          count(key, value, name = "total") %>% 
-          ggplot(aes(x = value, y = total)) +
-          geom_bar(stat = "identity") +
-          theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1)) +
-          facet_wrap(. ~ key, ncol = 2, scales = "free") 
-      } 
-    })
-  })
+   observeEvent(input$data_file, {
+     output$bar_plot <- renderPlot({
+       if(length(dat_vars()[["categorical"]]) != 0) {
+         dat_recode() %>% 
+           select(dat_vars()[["categorical"]]) %>%
+           gather %>% 
+           count(key, value, name = "total") %>% 
+           ggplot(aes(x = value, y = total)) +
+           geom_bar(stat = "identity") +
+           theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1)) +
+           facet_wrap(. ~ key, ncol = 2, scales = "free") 
+       } 
+     })
+   }) 
   observeEvent(input$data_file, {
     ## continuous variable transformation ui
     output$preds_tran_ui <- renderUI({
