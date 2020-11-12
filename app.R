@@ -221,11 +221,7 @@ ui <-  dashboardPage(
                         uiOutput("target_ui")),
                  column(width = 6, 
                         ## target variable transformation (exclude polynomials)
-                        selectizeInput(inputId = "tran_target", 
-                                       label = "Transformation:",
-                                       choices = tran_opts[c("Simple", "Logarithmic")],
-                                       multiple = FALSE,
-                                       selected = "None"))),
+                        uiOutput("target_trans_ui"))),
                fluidRow(
                  column(width = 6,
                         ## continuous variables ui
@@ -241,11 +237,9 @@ ui <-  dashboardPage(
                div(style = "height:5px"),
                fluidRow(
                  column(width = 5, 
-                        actionButton(inputId = "intTermAdd", label = "Add Interaction",
-                                     width = "140px")),
+                        uiOutput("intTermAdd_ui")),
                  column(width = 5, 
-                        actionButton(inputId = "intTermRemove", label = "Remove Interaction",
-                                     width = "140px"))),
+                        uiOutput("intTermRemove_ui"))),
                div(style = "height:5px"),
                uiOutput(outputId = "preds_int_ui"))
     )
@@ -260,7 +254,7 @@ ui <-  dashboardPage(
       of the app provide detailed, real-time information about your data and specific variables within it, as well 
       as information about your linear model. ",
       title = "Welcome"
-      ),
+    ),
     fluidRow(
       use_waiter(),
       tabBox(width = 12, height = NULL,
@@ -413,40 +407,42 @@ server <- function(input, output, session) {
   ## data recode default options
   var_recode_default <- reactive(var_orig_func(dat()))
   ## generate recode 
-  output$data_recode <- renderUI({
-    # recode selectors function
-    var_recode_select <-  function(var_name, var_type) {
-      input_name <- paste0(var_name, "_recode")
-      radioButtons(inputId = input_name,
-                   label = var_name,
-                   choices = c("continuous", "categorical"),
-                   selected = var_type)
-    }
-    ## left-side recode number by row (i.e. row 1 = 1, row 2 = 3, row 3 = 5)
-    recode_row_idx <- var_recode_default() %>% nrow %>% seq_len
-    recode_row_idx <- recode_row_idx[recode_row_idx %% 2 == 1]
-    ## recode row filter function
-    recode_row_func <- function(x) {var_recode_default() %>% filter(row_number() == x)}
-    ## generate selectors
-    ## render re-coding options
-    recode_row_idx %>%
-      map(~ if((.x + 1) %in% (var_recode_default() %>% nrow %>% seq_len)) {
-        recode_left_name <- recode_row_func(.x) %>% .$var_name
-        recode_left_type <- recode_row_func(.x) %>% .$var_type
-        recode_right_name <- recode_row_func(.x + 1) %>% .$var_name
-        recode_right_type <- recode_row_func(.x +1) %>% .$var_type
-        fluidRow(c("left", "right") %>% 
-                   map(~column(width = 6,
-                               var_recode_select(var_name = get(paste0("recode_", .x, "_name")),
-                                                 var_type = get(paste0("recode_", .x, "_type"))))))
-      } else {
-        ## generate ui when last predictor is an odd number
-        recode_left_name <- recode_row_func(.x) %>% .$var_name
-        recode_left_type <- recode_row_func(.x) %>% .$var_type
-        fluidRow(column(width = 6,
-                        var_recode_select(var_name = recode_left_name,
-                                          var_type = recode_left_type)))
-      })
+  observeEvent(input$data_file, {
+    output$data_recode <- renderUI({
+      # recode selectors function
+      var_recode_select <-  function(var_name, var_type) {
+        input_name <- paste0(var_name, "_recode")
+        radioButtons(inputId = input_name,
+                     label = var_name,
+                     choices = c("continuous", "categorical"),
+                     selected = var_type)
+      }
+      ## left-side recode number by row (i.e. row 1 = 1, row 2 = 3, row 3 = 5)
+      recode_row_idx <- var_recode_default() %>% nrow %>% seq_len
+      recode_row_idx <- recode_row_idx[recode_row_idx %% 2 == 1]
+      ## recode row filter function
+      recode_row_func <- function(x) {var_recode_default() %>% filter(row_number() == x)}
+      ## generate selectors
+      ## render re-coding options
+      recode_row_idx %>%
+        map(~ if((.x + 1) %in% (var_recode_default() %>% nrow %>% seq_len)) {
+          recode_left_name <- recode_row_func(.x) %>% .$var_name
+          recode_left_type <- recode_row_func(.x) %>% .$var_type
+          recode_right_name <- recode_row_func(.x + 1) %>% .$var_name
+          recode_right_type <- recode_row_func(.x +1) %>% .$var_type
+          fluidRow(c("left", "right") %>% 
+                     map(~column(width = 6,
+                                 var_recode_select(var_name = get(paste0("recode_", .x, "_name")),
+                                                   var_type = get(paste0("recode_", .x, "_type"))))))
+        } else {
+          ## generate ui when last predictor is an odd number
+          recode_left_name <- recode_row_func(.x) %>% .$var_name
+          recode_left_type <- recode_row_func(.x) %>% .$var_type
+          fluidRow(column(width = 6,
+                          var_recode_select(var_name = recode_left_name,
+                                            var_type = recode_left_type)))
+        })
+    })
   })
   ## generate reactive data frame based on variable recoding
   dat_recode <- reactive({
@@ -491,39 +487,48 @@ server <- function(input, output, session) {
       }
     }
   })
-  ## variable names
-  dat_vars <- reactive({
-    var_names_func(dat_recode())
-  })
-  ## target variable ui
-  output$target_ui <- renderUI({
-    selectizeInput(inputId = "target", label = "Target Variable:", 
-                   choices = dat_vars()[["continuous"]],
-                   multiple = TRUE,
-                   selected = NULL,
-                   options = list(placeholder = "Click to select",
-                                  maxItems = 1))
-  })
-  ## continuous variable ui
-  output$preds_cont_ui <- renderUI({
-    selectizeInput(inputId = "preds_cont", 
-                   label = "Cont. Predictors:", 
-                   choices = setdiff(dat_vars()[["continuous"]], input$target),
-                   multiple = TRUE,
-                   options = list(placeholder = "None"))
-  })
-  ## categorical variable ui
-  output$preds_cat_ui <- renderUI({
-    selectizeInput(inputId = "preds_cat",
-                   label = "Cat. Predictors:",
-                   choices = dat_vars()[["categorical"]],
-                   multiple = TRUE,
-                   options = list(placeholder = "None"))
-  })
-  ## update variable selections when data changes
   observeEvent(input$data_file, {
-    updateSelectizeInput(session, inputId = "preds_cont", selected = "")
-    updateSelectizeInput(session, inputId = "preds_cat", selected = "")
+    ## variable names
+    dat_vars <- reactive({
+      var_names_func(dat_recode())
+    })
+    ## target variable ui
+    output$target_ui <- renderUI({
+      selectizeInput(inputId = "target", label = "Target Variable:", 
+                     choices = dat_vars()[["continuous"]],
+                     multiple = TRUE,
+                     selected = NULL,
+                     options = list(placeholder = "Click to select",
+                                    maxItems = 1))
+    })
+    output$target_trans_ui <- renderUI({
+      selectizeInput(inputId = "tran_target", 
+                     label = "Transformation:",
+                     choices = tran_opts[c("Simple", "Logarithmic")],
+                     multiple = FALSE,
+                     selected = "None")
+    })
+    ## continuous variable ui
+    output$preds_cont_ui <- renderUI({
+      selectizeInput(inputId = "preds_cont", 
+                     label = "Cont. Predictors:", 
+                     choices = setdiff(dat_vars()[["continuous"]], input$target),
+                     multiple = TRUE,
+                     options = list(placeholder = "None"))
+    })
+    ## categorical variable ui
+    output$preds_cat_ui <- renderUI({
+      selectizeInput(inputId = "preds_cat",
+                     label = "Cat. Predictors:",
+                     choices = dat_vars()[["categorical"]],
+                     multiple = TRUE,
+                     options = list(placeholder = "None"))
+    })
+    ## update variable selections when data changes
+    observeEvent(input$data_file, {
+      updateSelectizeInput(session, inputId = "preds_cont", selected = "")
+      updateSelectizeInput(session, inputId = "preds_cat", selected = "")
+    })
   })
   ## correlation matrix ui
   observeEvent(input$corr_matrix_generate, {
@@ -554,36 +559,47 @@ server <- function(input, output, session) {
       } 
     })
   })
-  ## continuous variable transformation ui
-  output$preds_tran_ui <- renderUI({
-    ## variable transformation select function
-    tran_select_preds <-  function(predsContName) {
-      input_name <- paste0("trans_", predsContName)
-      selectizeInput(inputId = input_name, 
-                     label = predsContName,
-                     choices = tran_opts,
-                     multiple = FALSE,
-                     selected = isolate(input[[input_name]])) 
-    }
-    ## left-side transformation number by row (i.e. row 1 = 1, row 2 = 3, row 3 = 5)
-    tran_row_idx <- length(input$preds_cont) %>% seq_len
-    tran_row_idx <- tran_row_idx[tran_row_idx %% 2 == 1]
-    ## generate ui when last predictor is an even number
-    tran_row_idx %>% 
-      map(~ if(!is.na(input$preds_cont[.x + 1])) {
-        tran_left <- input$preds_cont[.x]
-        tran_right <- input$preds_cont[.x + 1]
-        fluidRow(column(width = 6, 
-                        tran_select_preds(predsContName = tran_left)),
-                 column(width = 6, 
-                        tran_select_preds(predsContName = tran_right)))
-      } else {
-        ## generate ui when last predictor is an odd number
-        tran_left <- input$preds_cont[.x]
-        fluidRow(column(width = 6, 
-                        tran_select_preds(predsContName = tran_left)))
+  observeEvent(input$data_file, {
+    ## continuous variable transformation ui
+    output$preds_tran_ui <- renderUI({
+      ## variable transformation select function
+      tran_select_preds <-  function(predsContName) {
+        input_name <- paste0("trans_", predsContName)
+        selectizeInput(inputId = input_name, 
+                       label = predsContName,
+                       choices = tran_opts,
+                       multiple = FALSE,
+                       selected = isolate(input[[input_name]])) 
       }
-      )
+      ## left-side transformation number by row (i.e. row 1 = 1, row 2 = 3, row 3 = 5)
+      tran_row_idx <- length(input$preds_cont) %>% seq_len
+      tran_row_idx <- tran_row_idx[tran_row_idx %% 2 == 1]
+      ## generate ui when last predictor is an even number
+      tran_row_idx %>% 
+        map(~ if(!is.na(input$preds_cont[.x + 1])) {
+          tran_left <- input$preds_cont[.x]
+          tran_right <- input$preds_cont[.x + 1]
+          fluidRow(column(width = 6, 
+                          tran_select_preds(predsContName = tran_left)),
+                   column(width = 6, 
+                          tran_select_preds(predsContName = tran_right)))
+        } else {
+          ## generate ui when last predictor is an odd number
+          tran_left <- input$preds_cont[.x]
+          fluidRow(column(width = 6, 
+                          tran_select_preds(predsContName = tran_left)))
+        }
+        )
+    })
+    ## interaction terms ui
+    output$intTermAdd_ui <- renderUI({
+      actionButton(inputId = "intTermAdd", label = "Add Interaction",
+                   width = "140px")
+    })
+    output$intTermRemove_ui <- renderUI({
+      actionButton(inputId = "intTermRemove", label = "Remove Interaction",
+                   width = "140px")
+    })
   })
   ## generate data frame to store variable transformations
   dat_tran <- reactive({

@@ -1,0 +1,10 @@
+name: linear-regression-shiny-app
+title:
+username:
+account: dcont5512
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 3214510
+bundleId: 3852121
+url: https://dcont5512.shinyapps.io/linear-regression-shiny-app/
+when: 1605188984.96117
