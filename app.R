@@ -246,13 +246,15 @@ ui <-  dashboardPage(
   ),
   dashboardBody(
     modal_confirm <- modalDialog(
-      "This app allows you to interactively build a linear model and see in real time how various parameter
+      HTML("This app allows you to interactively build a linear model and see in real time how various parameter
       selections impact different components of the model. To begin, click 'Select Data' at the left and select 
       either a preloaded dataset from R, or upload one of your own. Note that the app automatically filters out
       date objects from all files. After selecting your dataset, you can then recode variables as necessary; select 
       your target and predictor variables; transform variables; and add interaction terms. The pages on the right-side 
       of the app provide detailed, real-time information about your data and specific variables within it, as well 
-      as information about your linear model. ",
+      as information about your linear model.</p>
+      <b>Author:</b> Dominic Contreras</p>
+      <b>Email:</b> dcont5512 at gmail.com"),
       title = "Welcome"
     ),
     fluidRow(
@@ -536,6 +538,7 @@ server <- function(input, output, session) {
   })
   ## correlation matrix render
   observeEvent(input$corr_matrix_generate, {
+    browser()
     output$corr_matrix <- renderPlot({
       Waiter$new(id = "corr_matrix")$show()
       dat_recode() %>% select_if(is.numeric) %>% ggpairs})
@@ -545,20 +548,20 @@ server <- function(input, output, session) {
     shinyjs::hide("corr_matrix_ui")
   })
   ## bar plot render
-   observeEvent(input$data_file, {
-     output$bar_plot <- renderPlot({
-       if(length(dat_vars()[["categorical"]]) != 0) {
-         dat_recode() %>% 
-           select(dat_vars()[["categorical"]]) %>%
-           gather %>% 
-           count(key, value, name = "total") %>% 
-           ggplot(aes(x = value, y = total)) +
-           geom_bar(stat = "identity") +
-           theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1)) +
-           facet_wrap(. ~ key, ncol = 2, scales = "free") 
-       } 
-     })
-   }) 
+  observeEvent(input$data_file, {
+    output$bar_plot <- renderPlot({
+      if(length(dat_vars()[["categorical"]]) != 0) {
+        dat_recode() %>% 
+          select(dat_vars()[["categorical"]]) %>%
+          gather %>% 
+          count(key, value, name = "total") %>% 
+          ggplot(aes(x = value, y = total)) +
+          geom_bar(stat = "identity") +
+          theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1)) +
+          facet_wrap(. ~ key, ncol = 2, scales = "free") 
+      } 
+    })
+  }) 
   observeEvent(input$data_file, {
     ## continuous variable transformation ui
     output$preds_tran_ui <- renderUI({
@@ -607,9 +610,20 @@ server <- function(input, output, session) {
       map(~input[[paste0("trans_", .x)]]) %>% 
       unlist
     ## create data frame with column 1 = variable name and column 2 = transformation
-    tran_list <- data.frame(var_name = c(input$target, input$preds_cont),
-                            tran_list = c(input$tran_target, tran_preds),
-                            stringsAsFactors = F) %>%
+    var_name <- c(input$target, input$preds_cont)
+    tran_list <- c(input$tran_target, tran_preds)
+    tran_list <- if((length(var_name) == length(tran_list)) == FALSE) {
+      miss_term <- length(var_name) - length(tran_list)
+      tran_terms <- c(tran_list, rep("None", miss_term))
+      data.frame(var_name = var_name,
+                 tran_list = tran_terms,
+                 stringsAsFactors = FALSE)
+    } else {
+      data.frame(var_name = var_name,
+                 tran_list = tran_list,
+                 stringsAsFactors = F)
+    }
+    tran_list %>%
       ## use transformation function to obtain transformation statements for model/plots
       rowwise %>%
       mutate(tran_form = tran_func(var_name, tran_list, "model"),
@@ -844,7 +858,7 @@ server <- function(input, output, session) {
                          discard(.p=str_detect, pattern = "poly"))
     } else {
       ## vif model excluding selected categorical variables
-      model_terms <- c(dat_tran() %>% .$tran_form %>% .[.!= input$preds_cat] %>% 
+      model_terms <- c(dat_tran() %>% .$tran_form %>% setdiff(input$preds_cat) %>% 
                          discard(.p=str_detect, pattern = "poly"))
     }
     ## generate model formula - note first term always target
@@ -873,10 +887,12 @@ server <- function(input, output, session) {
     }
   })
   ## generate linear model summary
-  output$lm_summary <- renderPrint({
-    if(lm_ready() == TRUE) {
-      summary(lm_model())
-    }
+  observeEvent(input$preds_cont, {
+    output$lm_summary <- renderPrint({
+      if(lm_ready() == TRUE) {
+        summary(lm_model())
+      }
+    })
   })
   ## generate vif statistics (requirement: >= 2 continuous predictors)
   output$lm_vif <- renderDataTable({
