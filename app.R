@@ -538,7 +538,6 @@ server <- function(input, output, session) {
   })
   ## correlation matrix render
   observeEvent(input$corr_matrix_generate, {
-    browser()
     output$corr_matrix <- renderPlot({
       Waiter$new(id = "corr_matrix")$show()
       dat_recode() %>% select_if(is.numeric) %>% ggpairs})
